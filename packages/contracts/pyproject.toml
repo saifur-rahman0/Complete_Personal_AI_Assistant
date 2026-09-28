@@ -1,0 +1,16 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ai-workforce-contracts"
+version = "0.1.0"
+description = "Shared event and API contracts for AI Workforce microservices"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pydantic>=2.7.0"
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/contracts"]

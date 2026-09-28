@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "ai-workforce-task-service"
+version = "0.1.0"
+description = "Task lifecycle and approval microservice for AI Workforce"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn>=0.30.0",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.3.0",
+    "sqlalchemy>=2.0.30",
+    "ai-workforce-contracts",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/task_service"]

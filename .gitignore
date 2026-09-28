@@ -1,0 +1,82 @@
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+venv/
+.venv/
+ENV/
+env/
+
+# Flutter / Dart
+**/doc/api/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+/build/
+apps/client/build/
+apps/client/.dart_tool/
+
+# Android & iOS build artifacts
+apps/client/android/app/build/
+apps/client/android/.gradle/
+apps/client/android/local.properties
+apps/client/ios/Pods/
+apps/client/ios/.symlinks/
+apps/client/ios/Flutter/Flutter.framework
+apps/client/ios/Flutter/Flutter.podspec
+
+# Windows build artifacts
+apps/client/windows/flutter/ephemeral/
+
+# IDE & Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*.iml
+*.ipr
+*.iws
+
+# Operating System
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# Docker and local database data directories
+infrastructure/data/
+postgres_data/
+rabbitmq_data/
