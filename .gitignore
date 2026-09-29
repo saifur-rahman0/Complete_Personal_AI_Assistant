@@ -80,3 +80,8 @@ desktop.ini
 infrastructure/data/
 postgres_data/
 rabbitmq_data/
+
+# Local project docs and agent memory
+docs/
+AGENTS.md
+memory.md
