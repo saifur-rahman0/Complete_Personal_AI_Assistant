@@ -1,0 +1,62 @@
+import json
+import logging
+from typing import Any, Dict, Optional
+import httpx
+from decision_router.config import settings
+
+logger = logging.getLogger("decision_router.llm")
+
+EXTRACTION_SYSTEM_PROMPT = """You are an AI tool parameter extractor for a personal assistant.
+Given a user command, extract structured parameters for file operations.
+Return ONLY valid JSON matching this schema:
+{
+  "action": "list_directory" | "search_files" | "move_file" | "organize_folder",
+  "directory_path": "string path or null",
+  "source_path": "string path or null",
+  "destination_path": "string path or null",
+  "pattern": "string pattern or null",
+  "strategy": "by_extension" | "by_date" | null,
+  "dry_run": boolean
+}
+Do not include any conversational text or explanation. Only return JSON.
+"""
+
+
+class LLMToolExtractor:
+    def __init__(self, base_url: Optional[str] = None, model: Optional[str] = None) -> None:
+        self.base_url = (base_url or settings.OLLAMA_BASE_URL).rstrip("/")
+        self.model = model or settings.OLLAMA_MODEL
+
+    def extract_file_parameters(self, prompt: str) -> Optional[Dict[str, Any]]:
+        """
+        Queries local Ollama instance with Qwen 2.5 to extract structured JSON parameters.
+        Returns extracted dictionary, or None if Ollama is unreachable.
+        """
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            "format": "json",
+            "stream": False,
+            "options": {"temperature": 0.0},
+        }
+
+        try:
+            with httpx.Client(base_url=self.base_url, timeout=5.0) as client:
+                resp = client.post("/api/chat", json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                content = data.get("message", {}).get("content", "")
+                parsed = json.loads(content)
+                return {k: v for k, v in parsed.items() if v is not None}
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
+            logger.debug(f"Local Ollama server not reachable at {self.base_url}: {e}")
+            return None
+        except (json.JSONDecodeError, Exception) as e:
+            logger.warning(f"Error parsing Ollama output: {e}")
+            return None
+
+
+llm_extractor = LLMToolExtractor()

@@ -50,4 +50,9 @@ __all__ = [
     "MoveFileRequest",
     "OrganizeFolderRequest",
     "FileActionResult",
+    "IntentType",
+    "RouteRequest",
+    "RouteDecision",
 ]
+
+from contracts.router import IntentType, RouteDecision, RouteRequest
