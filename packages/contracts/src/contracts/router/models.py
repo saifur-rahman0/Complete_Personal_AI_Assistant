@@ -8,7 +8,9 @@ class IntentType(str, Enum):
     REMINDER = "reminder"
     WEB_RESEARCH = "web_research"
     SYSTEM_AUTOMATION = "system_automation"
+    DESKTOP_AUTOMATION = "desktop_automation"
     GENERAL_QUERY = "general_query"
+
 
 
 class RouteRequest(BaseModel):

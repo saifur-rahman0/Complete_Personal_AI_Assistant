@@ -27,6 +27,53 @@ from contracts.files import (
     SearchFilesRequest,
 )
 
+from contracts.router import IntentType, RouteDecision, RouteRequest
+from contracts.reminders import (
+    ReminderCreateRequest,
+    ReminderListResponse,
+    ReminderResponse,
+    ReminderStatus,
+    ReminderTargetDevice,
+)
+from contracts.memory import (
+    MemoryCategory,
+    MemoryEntryCreate,
+    MemoryEntryResponse,
+    MemorySearchRequest,
+    MemorySearchResponse,
+)
+from contracts.research import (
+    ResearchReport,
+    ResearchRequest,
+    WebSourceResult,
+)
+from contracts.desktop import (
+    AllowlistedCommandType,
+    AllowlistedScriptRequest,
+    AppCloseRequest,
+    AppLaunchRequest,
+    DesktopActionResult,
+    DesktopActionType,
+    SystemTelemetry,
+    WindowInfo,
+)
+from contracts.devices import (
+    DevicePairingConfirmRequest,
+    DevicePairingConfirmResponse,
+    DevicePairingInitRequest,
+    DevicePairingInitResponse,
+    DevicePairingStatus,
+    DeviceType,
+    PairedDevice,
+)
+from contracts.gateway import (
+    GatewayEventType,
+    GatewaySyncEvent,
+    OfflineActionItem,
+    SyncBatchRequest,
+    SyncBatchResponse,
+)
+
 __all__ = [
     "EventEnvelope",
     "TaskStatus",
@@ -53,6 +100,39 @@ __all__ = [
     "IntentType",
     "RouteRequest",
     "RouteDecision",
+    "ReminderStatus",
+    "ReminderTargetDevice",
+    "ReminderCreateRequest",
+    "ReminderResponse",
+    "ReminderListResponse",
+    "MemoryCategory",
+    "MemoryEntryCreate",
+    "MemoryEntryResponse",
+    "MemorySearchRequest",
+    "MemorySearchResponse",
+    "WebSourceResult",
+    "ResearchRequest",
+    "ResearchReport",
+    "DesktopActionType",
+    "AllowlistedCommandType",
+    "WindowInfo",
+    "SystemTelemetry",
+    "AppLaunchRequest",
+    "AppCloseRequest",
+    "AllowlistedScriptRequest",
+    "DesktopActionResult",
+    "DeviceType",
+    "DevicePairingStatus",
+    "DevicePairingInitRequest",
+    "DevicePairingInitResponse",
+    "DevicePairingConfirmRequest",
+    "DevicePairingConfirmResponse",
+    "PairedDevice",
+    "GatewayEventType",
+    "GatewaySyncEvent",
+    "OfflineActionItem",
+    "SyncBatchRequest",
+    "SyncBatchResponse",
 ]
 
-from contracts.router import IntentType, RouteDecision, RouteRequest
+

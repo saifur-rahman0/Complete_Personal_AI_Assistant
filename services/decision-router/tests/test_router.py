@@ -83,3 +83,99 @@ def test_classify_general_chat(client):
     data = res.json()
     assert data["intent"] == "general_query"
     assert data["requires_deep_reasoning"] is True
+
+
+def test_dispatch_conversational_greeting(client):
+    res = client.post("/api/v1/router/dispatch", json={"prompt": "hi"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["decision"]["intent"] == "general_query"
+    assert "Hello! I am Jarvis" in data["message"]
+
+
+def test_dispatch_web_research(client):
+    from unittest.mock import MagicMock, patch
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "id": "mock-report-id",
+        "query": "latest quantum computing breakthroughs",
+        "summary": "Quantum computing is advancing with new topological qubits.",
+        "key_findings": ["Topological qubits show high stability."],
+        "sources": [],
+        "created_at": "2026-09-29T12:00:00Z",
+    }
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_client_instance = MagicMock()
+    mock_client_instance.post.return_value = mock_resp
+    mock_client_instance.__enter__.return_value = mock_client_instance
+    mock_client_instance.__exit__.return_value = None
+
+    with patch("decision_router.api.routes.route.httpx.Client", return_value=mock_client_instance):
+        res = client.post(
+            "/api/v1/router/dispatch",
+            json={"prompt": "Search the web for latest quantum computing breakthroughs"},
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["decision"]["intent"] == "web_research"
+        assert "Quantum computing is advancing" in data["message"]
+
+
+def test_classify_desktop_telemetry(client):
+    res = client.post("/api/v1/router/classify", json={"prompt": "Check my system status and battery level"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["intent"] == "desktop_automation"
+    assert data["target_service"] == "windows-agent"
+    assert data["structured_action"] == "system_telemetry"
+
+
+def test_classify_desktop_app_launch(client):
+    res = client.post("/api/v1/router/classify", json={"prompt": "Please open notepad"})
+    assert res.status_code == 200
+    data = res.json()
+    assert data["intent"] == "desktop_automation"
+    assert data["target_service"] == "windows-agent"
+    assert data["structured_action"] == "app_launch"
+    assert data["structured_payload"]["app_name"] == "notepad"
+
+
+def test_dispatch_desktop_automation(client):
+    from unittest.mock import MagicMock, patch
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "id": "mock-desktop-task-id",
+        "title": "Desktop Action: System Telemetry",
+        "description": "Check my system status",
+        "target_device": "windows",
+        "priority": "normal",
+        "status": "pending",
+        "payload": {"action": "system_telemetry"},
+        "created_at": "2026-09-29T12:00:00Z",
+        "updated_at": "2026-09-29T12:00:00Z",
+    }
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_client_instance = MagicMock()
+    mock_client_instance.post.return_value = mock_resp
+    mock_client_instance.__enter__.return_value = mock_client_instance
+    mock_client_instance.__exit__.return_value = None
+
+    with patch("decision_router.api.routes.route.httpx.Client", return_value=mock_client_instance):
+        res = client.post(
+            "/api/v1/router/dispatch",
+            json={"prompt": "Check my system status"},
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["decision"]["intent"] == "desktop_automation"
+        assert "Dispatched desktop task" in data["message"]
+        assert data["task"]["id"] == "mock-desktop-task-id"
+
+
+

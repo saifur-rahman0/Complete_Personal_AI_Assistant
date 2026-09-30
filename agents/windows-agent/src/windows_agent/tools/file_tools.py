@@ -64,7 +64,13 @@ EXTENSION_CATEGORIES: Dict[str, str] = {
 
 class FileTools:
     def __init__(self, allowed_roots: Optional[List[Path]] = None) -> None:
-        self.allowed_roots = allowed_roots or settings.get_allowed_roots()
+        self._allowed_roots = allowed_roots
+
+    @property
+    def allowed_roots(self) -> List[Path]:
+        if self._allowed_roots is not None:
+            return self._allowed_roots
+        return settings.get_allowed_roots()
 
     def list_directory(
         self,

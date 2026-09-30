@@ -22,10 +22,47 @@ Do not include any conversational text or explanation. Only return JSON.
 """
 
 
+CHAT_SYSTEM_PROMPT = """You are Jarvis, a capable, polite, and responsive personal AI assistant for Windows and mobile devices.
+Assist the user concisely and helpfully.
+If the user greets you or asks who you are, greet them warmly and briefly mention what you can do (file management, desktop automation, reminders, web research).
+Keep your answers direct, friendly, and under 3-4 sentences unless asked for more details."""
+
+
 class LLMToolExtractor:
     def __init__(self, base_url: Optional[str] = None, model: Optional[str] = None) -> None:
         self.base_url = (base_url or settings.OLLAMA_BASE_URL).rstrip("/")
         self.model = model or settings.OLLAMA_MODEL
+
+    def generate_chat_response(self, prompt: str) -> Optional[str]:
+        """
+        Queries local Ollama instance (Qwen 2.5) for conversational responses.
+        Returns generated text or None if Ollama is unreachable.
+        """
+        payload = {
+            "model": self.model,
+            "messages": [
+                {"role": "system", "content": CHAT_SYSTEM_PROMPT},
+                {"role": "user", "content": prompt},
+            ],
+            "stream": False,
+            "options": {"temperature": 0.7},
+        }
+
+        try:
+            with httpx.Client(base_url=self.base_url, timeout=10.0) as client:
+                resp = client.post("/api/chat", json=payload)
+                resp.raise_for_status()
+                data = resp.json()
+                content = data.get("message", {}).get("content", "").strip()
+                if content:
+                    return content
+        except (httpx.ConnectError, httpx.TimeoutException) as e:
+            logger.debug(f"Local Ollama server not reachable for chat at {self.base_url}: {e}")
+            return None
+        except Exception as e:
+            logger.warning(f"Error during Ollama chat generation: {e}")
+            return None
+        return None
 
     def extract_file_parameters(self, prompt: str) -> Optional[Dict[str, Any]]:
         """
