@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -16,6 +16,7 @@ class IntentType(str, Enum):
 class RouteRequest(BaseModel):
     prompt: str = Field(..., min_length=1, description="Raw user prompt or command")
     device_context: str = Field(default="windows", description="Device initiating the request ('windows', 'android')")
+    history: List[Dict[str, Any]] = Field(default_factory=list, description="Recent conversation turns for context")
 
 
 class RouteDecision(BaseModel):

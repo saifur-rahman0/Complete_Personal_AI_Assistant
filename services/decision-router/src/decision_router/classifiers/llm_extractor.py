@@ -7,10 +7,14 @@ from decision_router.config import settings
 logger = logging.getLogger("decision_router.llm")
 
 EXTRACTION_SYSTEM_PROMPT = """You are an AI tool parameter extractor for a personal assistant.
-Given a user command, extract structured parameters for file operations.
+Given the current user command and recent conversation context (such as previously searched or listed files), extract structured parameters for file operations.
+If the user refers to previous files (e.g. "open the first one", "read the resume", "delete it", "show that file"), resolve the exact file path from the conversation history.
+
 Return ONLY valid JSON matching this schema:
 {
-  "action": "list_directory" | "search_files" | "move_file" | "organize_folder",
+  "action": "list_directory" | "search_files" | "read_file" | "open_file" | "move_file" | "rename_file" | "delete_file" | "organize_folder",
+  "file_path": "string absolute path or null",
+  "new_name": "string new filename with extension or null",
   "directory_path": "string path or null",
   "source_path": "string path or null",
   "destination_path": "string path or null",
@@ -33,17 +37,19 @@ class LLMToolExtractor:
         self.base_url = (base_url or settings.OLLAMA_BASE_URL).rstrip("/")
         self.model = model or settings.OLLAMA_MODEL
 
-    def generate_chat_response(self, prompt: str) -> Optional[str]:
+    def generate_chat_response(
+        self, prompt: str, history: Optional[List[Dict[str, Any]]] = None
+    ) -> Optional[str]:
         """
-        Generates conversational response using configured provider:
-        1. Google Gemini (fastest, free tier, <400ms)
-        2. Groq (ultra-fast Llama-3.3-70B, <300ms)
+        Generates conversational response using configured provider with multi-turn context:
+        1. Google Gemini (gemini-3.8-flash)
+        2. Groq (Llama-3.3-70B)
         3. OpenAI / compatible
         4. Local Ollama (fallback)
         """
         # 1. Google Gemini Cloud API
         if settings.GEMINI_API_KEY:
-            resp = self._call_gemini_chat(prompt)
+            resp = self._call_gemini_chat(prompt, history=history)
             if resp:
                 return resp
 
@@ -54,6 +60,7 @@ class LLMToolExtractor:
                 api_key=settings.GROQ_API_KEY,
                 model=settings.GROQ_MODEL,
                 prompt=prompt,
+                history=history,
             )
             if resp:
                 return resp
@@ -65,12 +72,13 @@ class LLMToolExtractor:
                 api_key=settings.OPENAI_API_KEY,
                 model=settings.OPENAI_MODEL,
                 prompt=prompt,
+                history=history,
             )
             if resp:
                 return resp
 
         # 4. Local Ollama instance (fallback)
-        return self._call_ollama_chat(prompt)
+        return self._call_ollama_chat(prompt, history=history)
 
     def _get_gemini_models(self) -> List[str]:
         configured = settings.GEMINI_MODEL or "gemini-3.8-flash"
@@ -85,18 +93,45 @@ class LLMToolExtractor:
         seen = set()
         return [x for x in defaults if not (x in seen or seen.add(x))]
 
-    def _call_gemini_chat(self, prompt: str) -> Optional[str]:
+    def _call_gemini_chat(
+        self, prompt: str, history: Optional[List[Dict[str, Any]]] = None
+    ) -> Optional[str]:
         headers = {
             "Content-Type": "application/json",
             "x-goog-api-key": settings.GEMINI_API_KEY,
         }
+
+        # Format alternating user and model turns for Gemini
+        formatted_turns = []
+        last_role = None
+        if history:
+            for turn in history[-6:]:
+                role = "user" if turn.get("role") == "user" else "model"
+                text = turn.get("text", "").strip()
+                if not text:
+                    continue
+                if role == last_role and formatted_turns:
+                    formatted_turns[-1]["parts"][0]["text"] += f"\n{text}"
+                else:
+                    formatted_turns.append({"role": role, "parts": [{"text": text}]})
+                    last_role = role
+
+        # Ensure first turn is from user
+        if formatted_turns and formatted_turns[0]["role"] == "model":
+            formatted_turns.pop(0)
+
+        # Append current user prompt
+        if formatted_turns and formatted_turns[-1]["role"] == "user":
+            formatted_turns[-1]["parts"][0]["text"] += f"\n{prompt}"
+        else:
+            formatted_turns.append({"role": "user", "parts": [{"text": prompt}]})
+
         payload = {
-            "contents": [
-                {
-                    "parts": [{"text": f"{CHAT_SYSTEM_PROMPT}\n\nUser request: {prompt}"}]
-                }
-            ],
-            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 400},
+            "systemInstruction": {
+                "parts": [{"text": CHAT_SYSTEM_PROMPT}]
+            },
+            "contents": formatted_turns,
+            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 450},
         }
 
         for model_name in self._get_gemini_models():
@@ -104,6 +139,16 @@ class LLMToolExtractor:
             try:
                 with httpx.Client(timeout=6.0, headers=headers) as client:
                     resp = client.post(f"{url}?key={settings.GEMINI_API_KEY}", json=payload)
+                    # If systemInstruction returned 400 on older endpoint, fallback without systemInstruction
+                    if resp.status_code == 400 and "systemInstruction" in payload:
+                        fallback_payload = {
+                            "contents": [
+                                {"parts": [{"text": f"{CHAT_SYSTEM_PROMPT}\n\nContext history: {history}\n\nUser: {prompt}"}]}
+                            ],
+                            "generationConfig": {"temperature": 0.7, "maxOutputTokens": 450},
+                        }
+                        resp = client.post(f"{url}?key={settings.GEMINI_API_KEY}", json=fallback_payload)
+
                     if resp.status_code in (404, 500, 503, 429):
                         logger.info(f"Gemini {model_name} returned {resp.status_code}; trying next candidate.")
                         continue
@@ -120,15 +165,26 @@ class LLMToolExtractor:
         return None
 
     def _call_openai_compatible_chat(
-        self, base_url: str, api_key: str, model: str, prompt: str
+        self,
+        base_url: str,
+        api_key: str,
+        model: str,
+        prompt: str,
+        history: Optional[List[Dict[str, Any]]] = None,
     ) -> Optional[str]:
         headers = {"Authorization": f"Bearer {api_key}"}
+        messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
+        if history:
+            for turn in history[-6:]:
+                messages.append({
+                    "role": "user" if turn.get("role") == "user" else "assistant",
+                    "content": turn.get("text", ""),
+                })
+        messages.append({"role": "user", "content": prompt})
+
         payload = {
             "model": model,
-            "messages": [
-                {"role": "system", "content": CHAT_SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
+            "messages": messages,
             "temperature": 0.7,
             "max_tokens": 400,
         }
@@ -144,13 +200,21 @@ class LLMToolExtractor:
             logger.warning(f"Error calling cloud LLM at {base_url}: {e}")
         return None
 
-    def _call_ollama_chat(self, prompt: str) -> Optional[str]:
+    def _call_ollama_chat(
+        self, prompt: str, history: Optional[List[Dict[str, Any]]] = None
+    ) -> Optional[str]:
+        messages = [{"role": "system", "content": CHAT_SYSTEM_PROMPT}]
+        if history:
+            for turn in history[-6:]:
+                messages.append({
+                    "role": "user" if turn.get("role") == "user" else "assistant",
+                    "content": turn.get("text", ""),
+                })
+        messages.append({"role": "user", "content": prompt})
+
         payload = {
             "model": self.model,
-            "messages": [
-                {"role": "system", "content": CHAT_SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ],
+            "messages": messages,
             "stream": False,
             "options": {"temperature": 0.7},
         }
@@ -166,10 +230,25 @@ class LLMToolExtractor:
             logger.debug(f"Local Ollama server not reachable for chat at {self.base_url}: {e}")
             return None
 
-    def extract_file_parameters(self, prompt: str) -> Optional[Dict[str, Any]]:
+    def extract_file_parameters(
+        self, prompt: str, history: Optional[List[Dict[str, Any]]] = None
+    ) -> Optional[Dict[str, Any]]:
         """
-        Extracts structured JSON parameters using Cloud LLM or local Ollama.
+        Extracts structured JSON parameters using Cloud LLM or local Ollama with conversational history.
         """
+        history_context = ""
+        if history:
+            history_lines = []
+            for h in history[-4:]:
+                r = "User" if h.get("role") == "user" else "Assistant"
+                t = h.get("text", "").strip()
+                if t:
+                    history_lines.append(f"{r}: {t[:1200]}")
+            if history_lines:
+                history_context = "Conversation History:\n" + "\n".join(history_lines) + "\n\n"
+
+        prompt_with_context = f"{history_context}Current Command: {prompt}"
+
         # 1. Google Gemini
         if settings.GEMINI_API_KEY:
             headers = {
@@ -181,7 +260,7 @@ class LLMToolExtractor:
                     {
                         "parts": [
                             {
-                                "text": f"{EXTRACTION_SYSTEM_PROMPT}\n\nCommand: {prompt}"
+                                "text": f"{EXTRACTION_SYSTEM_PROMPT}\n\n{prompt_with_context}"
                             }
                         ]
                     }
@@ -214,7 +293,7 @@ class LLMToolExtractor:
             "model": self.model,
             "messages": [
                 {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
+                {"role": "user", "content": prompt_with_context},
             ],
             "format": "json",
             "stream": False,

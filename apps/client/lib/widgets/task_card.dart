@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:personal_ai_assistant_apps/models/task.dart';
 import 'package:personal_ai_assistant_apps/services/api_service.dart';
 
@@ -148,7 +149,7 @@ class TaskCard extends StatelessWidget {
               child: ListView.separated(
                 shrinkWrap: true,
                 itemCount: matches.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 4),
+                separatorBuilder: (context, index) => const SizedBox(height: 4),
                 itemBuilder: (context, i) {
                   final m = matches[i];
                   final name = m.group(1) ?? '';
@@ -169,6 +170,18 @@ class TaskCard extends StatelessWidget {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                             ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.copy, size: 12, color: Colors.cyanAccent),
+                            tooltip: 'Copy Path',
+                            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                            padding: EdgeInsets.zero,
+                            onPressed: () {
+                              Clipboard.setData(ClipboardData(text: path));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('Copied path to clipboard'), duration: Duration(seconds: 1)),
+                              );
+                            },
                           ),
                           IconButton(
                             icon: const Icon(Icons.open_in_new, size: 13, color: Colors.tealAccent),

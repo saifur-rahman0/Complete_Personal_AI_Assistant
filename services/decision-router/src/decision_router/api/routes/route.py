@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 import re
 import time
 from typing import Any, Dict, Optional
@@ -36,25 +37,45 @@ def classify_prompt(req: RouteRequest, use_neural: Optional[bool] = None) -> Rou
         decision = system_one_classifier.classify(req)
 
     # 2. If System One requires deep reasoning or has low confidence, try LLM extraction for file candidates
+    prompt_lower = req.prompt.lower()
+    has_file_history = any(
+        ("file" in h.get("text", "").lower() or "[" in h.get("text", "") or "found" in h.get("text", "").lower())
+        for h in req.history[-3:]
+    ) if req.history else False
+
     is_file_candidate = (
         decision.intent == IntentType.FILE_MANAGEMENT
-        or any(w in req.prompt.lower() for w in ["file", "folder", "directory", "download", "document", "desktop", "pdf", "organize", "sort", "move", "clean"])
+        or any(w in prompt_lower for w in [
+            "file", "folder", "directory", "download", "document", "desktop", "pdf",
+            "doc", "docx", "txt", "xlsx", "csv", "image", "photo", "video",
+            "resume", "invoice", "receipt", "organize", "sort", "move", "clean", "find", "search"
+        ])
+        or (has_file_history and any(w in prompt_lower for w in [
+            "open", "read", "view", "see", "show", "preview", "delete", "remove", "rename", "first", "second", "last", "it", "that", "which"
+        ]))
     )
     if is_file_candidate and (decision.requires_deep_reasoning or decision.confidence < settings.CONFIDENCE_THRESHOLD):
-        llm_params = llm_extractor.extract_file_parameters(req.prompt)
+        llm_params = llm_extractor.extract_file_parameters(req.prompt, history=req.history)
         if llm_params and "action" in llm_params:
-            decision.intent = IntentType.FILE_MANAGEMENT
-            decision.confidence = 0.95
-            decision.target_service = "windows-agent"
-            decision.structured_action = llm_params["action"]
-            decision.structured_payload = llm_params
+            action = llm_params["action"]
+            # Validate required file_path for single-file operations
+            if action in ("read_file", "open_file", "rename_file", "delete_file") and not (llm_params.get("file_path") or llm_params.get("path")):
+                pass
+            else:
+                if not llm_params.get("directory_path") and action in ("list_directory", "search_files", "organize_folder"):
+                    llm_params["directory_path"] = str(Path.home() / "Downloads")
+                decision.intent = IntentType.FILE_MANAGEMENT
+                decision.confidence = 0.95
+                decision.target_service = "windows-agent"
+                decision.structured_action = action
+                decision.structured_payload = llm_params
 
     return decision
 
 
-def _format_conversational_response(prompt: str) -> str:
-    # 1. Try local Ollama LLM if reachable
-    llm_reply = llm_extractor.generate_chat_response(prompt)
+def _format_conversational_response(prompt: str, history: Optional[List[Dict[str, Any]]] = None) -> str:
+    # 1. Try local or cloud LLM with multi-turn conversation history
+    llm_reply = llm_extractor.generate_chat_response(prompt, history=history)
     if llm_reply:
         return llm_reply
 
@@ -276,7 +297,7 @@ def dispatch_prompt(req: RouteRequest) -> DispatchResponse:
             )
 
     if decision.intent == IntentType.GENERAL_QUERY:
-        conversational_reply = _format_conversational_response(req.prompt)
+        conversational_reply = _format_conversational_response(req.prompt, history=req.history)
         return DispatchResponse(
             decision=decision,
             task=None,

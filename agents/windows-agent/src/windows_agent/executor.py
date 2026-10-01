@@ -60,8 +60,16 @@ class TaskExecutor:
                     self._handle_list(task, payload)
                 elif action == FileActionType.SEARCH_FILES:
                     self._handle_search(task, payload)
+                elif action == FileActionType.READ_FILE:
+                    self._handle_read_file(task, payload)
+                elif action == FileActionType.OPEN_FILE:
+                    self._handle_open_file(task, payload)
                 elif action == FileActionType.MOVE_FILE:
                     self._handle_move(task, payload)
+                elif action == FileActionType.RENAME_FILE:
+                    self._handle_rename(task, payload)
+                elif action == FileActionType.DELETE_FILE:
+                    self._handle_delete(task, payload)
                 elif action == FileActionType.ORGANIZE_FOLDER:
                     self._handle_organize(task, payload)
                 else:
@@ -152,14 +160,15 @@ class TaskExecutor:
 
         matches = sorted(matches, key=lambda x: (not x.is_directory, x.name.lower()))
 
-        lines = [f"Found {len(matches)} file(s) matching `{pattern}` in `{folder}`:\n"]
+        folder_label = f"`{folder}`" if folder and str(folder).strip() else "Downloads & Documents"
+        lines = [f"Found {len(matches)} file(s) matching `{pattern}` in {folder_label}:\n"]
         for it in matches[:60]:
             icon = "📁" if it.is_directory else "📄"
             size_label = "Folder" if it.is_directory else self._format_file_size(it.size_bytes)
             lines.append(f"{icon} [{it.name}]({it.path}) — `{size_label}`")
 
         if not matches:
-            lines.append(f"*No files found matching '{pattern}' in '{folder}'.*")
+            lines.append(f"*No files found matching '{pattern}' in {folder_label}.*")
         elif len(matches) > 60:
             lines.append(f"\n*... and {len(matches) - 60} more items.*")
 
@@ -167,7 +176,7 @@ class TaskExecutor:
         result_data = {
             "type": "search_results",
             "pattern": pattern,
-            "folder": str(folder),
+            "folder": str(folder) if folder else "all_roots",
             "count": len(matches),
             "files": [
                 {
@@ -186,6 +195,23 @@ class TaskExecutor:
             status=TaskStatus.COMPLETED,
             result_summary=summary,
             result_data=result_data,
+        )
+
+    def _handle_read_file(self, task: TaskResponse, payload: Dict[str, Any]) -> None:
+        file_path = payload.get("file_path") or payload.get("path") or payload.get("source_path")
+        if not file_path:
+            raise ValueError("Missing required 'file_path' parameter.")
+
+        result = self.tools.read_file_content(file_path)
+        content_preview = result["content"]
+        trunc_note = f"\n\n*(Preview truncated: total size {self._format_file_size(result['size_bytes'])})*" if result["truncated"] else ""
+        summary = f"📄 **File Content: `{result['name']}`**\n\n```\n{content_preview}\n```{trunc_note}"
+
+        self.client.update_task(
+            task.id,
+            status=TaskStatus.COMPLETED,
+            result_summary=summary,
+            result_data={"type": "file_content", **result},
         )
 
     def _handle_move(self, task: TaskResponse, payload: Dict[str, Any]) -> None:
@@ -257,6 +283,71 @@ class TaskExecutor:
             task.id,
             status=TaskStatus.COMPLETED,
             result_summary=result.message,
+        )
+
+    def _handle_open_file(self, task: TaskResponse, payload: Dict[str, Any]) -> None:
+        file_path = payload.get("path") or payload.get("file_path")
+        if not file_path:
+            raise ValueError("Missing required 'file_path' or 'path' parameter.")
+        reveal = payload.get("reveal", False)
+        result = self.tools.open_file(file_path, reveal=reveal)
+        self.client.update_task(
+            task.id,
+            status=TaskStatus.COMPLETED,
+            result_summary=result.message,
+            result_data={"type": "open_file", **result.model_dump()},
+        )
+
+    def _handle_rename(self, task: TaskResponse, payload: Dict[str, Any]) -> None:
+        file_path = payload.get("file_path") or payload.get("path")
+        new_name = payload.get("new_name")
+        if not file_path or not new_name:
+            raise ValueError("Missing required 'file_path' or 'new_name' parameter.")
+
+        result = self.tools.rename_file(file_path, new_name)
+        self.client.update_task(
+            task.id,
+            status=TaskStatus.COMPLETED,
+            result_summary=result.message,
+            result_data={"type": "rename_file", **result.model_dump()},
+        )
+
+    def _handle_delete(self, task: TaskResponse, payload: Dict[str, Any]) -> None:
+        file_path = payload.get("file_path") or payload.get("path")
+        if not file_path:
+            raise ValueError("Missing required 'file_path' parameter.")
+        permanent = payload.get("permanent", False)
+        require_approval = payload.get("require_approval", False)
+
+        if require_approval:
+            approval = self.client.request_approval(
+                task_id=task.id,
+                action_type="file_delete",
+                title=f"Approval needed: Delete '{file_path}'",
+                description=f"Request to delete file: {file_path} (permanent={permanent})",
+                metadata={"file_path": file_path, "permanent": permanent},
+            )
+            if approval.status == ApprovalStatus.PENDING:
+                self.client.update_task(
+                    task.id,
+                    status=TaskStatus.AWAITING_APPROVAL,
+                    result_summary=f"Waiting for approval to delete '{file_path}'",
+                )
+                return
+            elif approval.status == ApprovalStatus.REJECTED:
+                self.client.update_task(
+                    task.id,
+                    status=TaskStatus.FAILED,
+                    error_message=f"File deletion was rejected: {approval.reason or 'User denied'}",
+                )
+                return
+
+        result = self.tools.delete_file(file_path, permanent=permanent)
+        self.client.update_task(
+            task.id,
+            status=TaskStatus.COMPLETED,
+            result_summary=result.message,
+            result_data={"type": "delete_file", **result.model_dump()},
         )
 
     # --- Desktop Action Handlers ---

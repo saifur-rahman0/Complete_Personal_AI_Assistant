@@ -25,6 +25,13 @@ async def dispatch_prompt(
     if prompt:
         chat_store.add_message(role="user", text=prompt, device=x_device_id)
 
+    # Attach recent conversation history (excluding the prompt just added)
+    all_msgs = chat_store.get_messages(limit=10)
+    body["history"] = [
+        {"role": m["role"], "text": m["text"]}
+        for m in (all_msgs[:-1] if prompt else all_msgs)
+    ]
+
     try:
         async with httpx.AsyncClient(base_url=settings.ROUTER_SERVICE_URL, timeout=15.0) as client:
             resp = await client.post("/api/v1/router/dispatch", json=body, headers=headers)

@@ -499,6 +499,62 @@ class ApiService {
       return false;
     }
   }
+
+  /// Safely previews text content of a file on the workstation
+  Future<Map<String, dynamic>?> readFile(String path, {int maxBytes = 15000}) async {
+    try {
+      final res = await _httpPost(
+        '$gatewayBaseUrl/api/v1/files/read',
+        {'file_path': path, 'max_bytes': maxBytes},
+      );
+      return res;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Renames a file on the workstation
+  Future<Map<String, dynamic>?> renameFile(String path, String newName) async {
+    try {
+      final res = await _httpPost(
+        '$gatewayBaseUrl/api/v1/files/rename',
+        {'file_path': path, 'new_name': newName},
+      );
+      return res;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Moves a file to destination folder or path
+  Future<Map<String, dynamic>?> moveFile(String sourcePath, String destinationPath, {bool overwrite = false}) async {
+    try {
+      final res = await _httpPost(
+        '$gatewayBaseUrl/api/v1/files/move',
+        {
+          'source_path': sourcePath,
+          'destination_path': destinationPath,
+          'overwrite': overwrite,
+        },
+      );
+      return res;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// Safely recycles or deletes a file on the workstation
+  Future<bool> deleteFile(String path, {bool permanent = false}) async {
+    try {
+      await _httpPost(
+        '$gatewayBaseUrl/api/v1/files/delete',
+        {'file_path': path, 'permanent': permanent},
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 }
 
 final apiService = ApiService();

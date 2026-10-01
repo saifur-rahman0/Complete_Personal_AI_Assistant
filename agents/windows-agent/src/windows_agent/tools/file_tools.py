@@ -1,5 +1,8 @@
 import os
+import re
 import shutil
+import subprocess
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -110,38 +113,115 @@ class FileTools:
 
     def search_files(
         self,
-        directory_path: str | Path,
-        pattern: str,
+        directory_path: Optional[str | Path] = None,
+        pattern: str = "*",
         recursive: bool = True,
         max_results: int = 150,
     ) -> List[FileInfo]:
-        """Searches for files matching a glob pattern (e.g. *.pdf) within a validated path."""
-        target_dir = validate_path(directory_path, self.allowed_roots)
-        if not target_dir.is_dir():
-            raise NotADirectoryError(f"Search target is not a directory: '{target_dir}'")
+        """Searches for files matching keywords or glob pattern within validated path(s)."""
+        # 1. Resolve search root directories (fallback to allowed roots if not specified)
+        search_dirs: List[Path] = []
+        if directory_path and str(directory_path).strip():
+            target_dir = validate_path(directory_path, self.allowed_roots)
+            if not target_dir.is_dir():
+                raise NotADirectoryError(f"Search target is not a directory: '{target_dir}'")
+            search_dirs = [target_dir]
+        else:
+            search_dirs = [r for r in self.allowed_roots if r.is_dir()]
+
+        # 2. Parse search pattern for keywords and required extension
+        clean = (pattern or "*").strip().lower()
+        required_ext: Optional[str] = None
+        keywords: List[str] = []
+
+        # Check for extension like *.pdf or "pdf"
+        ext_match = re.search(r"\*?\.([a-zA-Z0-9]+)\b", clean)
+        if ext_match:
+            required_ext = f".{ext_match.group(1).lower()}"
+            clean = re.sub(r"\*?\.[a-zA-Z0-9]+\b", "", clean)
+
+        for token in clean.replace("*", " ").split():
+            token = token.strip()
+            if token in ("files", "file", "all", "any", "present", "there", "in", "from", "on"):
+                continue
+            if token in ("pdf", "docx", "doc", "txt", "xlsx", "xls", "png", "jpg", "jpeg", "zip", "exe", "py", "json"):
+                required_ext = f".{token}"
+            elif len(token) >= 2:
+                keywords.append(token)
 
         results: List[FileInfo] = []
-        matcher = target_dir.rglob(pattern) if recursive else target_dir.glob(pattern)
+        seen_paths = set()
 
-        for entry in matcher:
+        for s_dir in search_dirs:
             if len(results) >= max_results:
                 break
-            try:
-                stat = entry.stat()
-                mod_time = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
-                results.append(
-                    FileInfo(
-                        name=entry.name,
-                        path=str(entry.resolve()),
-                        is_directory=entry.is_dir(),
-                        size_bytes=stat.st_size if entry.is_file() else 0,
-                        modified_at=mod_time,
+            iterator = s_dir.rglob("*") if recursive else s_dir.iterdir()
+            for entry in iterator:
+                if len(results) >= max_results:
+                    break
+                try:
+                    entry_path_str = str(entry.resolve())
+                    if entry_path_str in seen_paths:
+                        continue
+
+                    # Filter: if looking for files, skip directories
+                    if entry.is_dir() and (required_ext or keywords):
+                        continue
+
+                    entry_name_lower = entry.name.lower()
+
+                    # Check extension match
+                    if required_ext and not entry_name_lower.endswith(required_ext):
+                        continue
+
+                    # Check keyword terms match (substring in filename)
+                    if keywords:
+                        if not all(kw in entry_name_lower for kw in keywords):
+                            continue
+
+                    seen_paths.add(entry_path_str)
+                    stat = entry.stat()
+                    mod_time = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
+                    results.append(
+                        FileInfo(
+                            name=entry.name,
+                            path=entry_path_str,
+                            is_directory=entry.is_dir(),
+                            size_bytes=stat.st_size if entry.is_file() else 0,
+                            modified_at=mod_time,
+                        )
                     )
-                )
-            except (PermissionError, OSError):
-                continue
+                except (PermissionError, OSError):
+                    continue
 
         return results
+
+    def read_file_content(
+        self,
+        file_path: str | Path,
+        max_bytes: int = 15000,
+    ) -> Dict[str, Any]:
+        """Safely reads preview content of a text or document file."""
+        target_file = validate_path(file_path, self.allowed_roots)
+        if not target_file.is_file():
+            raise FileNotFoundError(f"File not found: '{target_file}'")
+
+        try:
+            stat = target_file.stat()
+            size = stat.st_size
+            with open(target_file, "r", encoding="utf-8", errors="replace") as f:
+                content = f.read(max_bytes)
+
+            truncated = size > max_bytes
+            return {
+                "name": target_file.name,
+                "path": str(target_file.resolve()),
+                "size_bytes": size,
+                "content": content,
+                "truncated": truncated,
+            }
+        except Exception as e:
+            raise OSError(f"Could not read file content: {e}")
 
     def preview_organize(
         self,
@@ -243,6 +323,101 @@ class FileTools:
             message=f"Organized {moved_count} of {len(planned_moves)} files.",
             affected_count=moved_count,
             details={"moved_count": moved_count, "errors": errors, "directory": str(directory_path)},
+        )
+
+    def open_file(
+        self,
+        file_path: str | Path,
+        reveal: bool = False,
+    ) -> FileActionResult:
+        """Opens or reveals a file or folder safely."""
+        target = validate_path(file_path, self.allowed_roots)
+        if not target.exists():
+            raise FileNotFoundError(f"Target path does not exist: '{target}'")
+
+        if sys.platform == "win32":
+            if reveal:
+                subprocess.Popen(["explorer.exe", f"/select,{str(target)}"])
+            else:
+                os.startfile(str(target))
+        else:
+            subprocess.Popen(["xdg-open", str(target)])
+
+        return FileActionResult(
+            action=FileActionType.OPEN_FILE,
+            success=True,
+            message=f"{'Revealed' if reveal else 'Opened'} '{target.name}'",
+            affected_count=1,
+            details={"path": str(target), "revealed": reveal},
+        )
+
+    def rename_file(
+        self,
+        file_path: str | Path,
+        new_name: str,
+    ) -> FileActionResult:
+        """Renames a file safely within its current parent directory."""
+        src = validate_path(file_path, self.allowed_roots)
+        if not src.exists():
+            raise FileNotFoundError(f"Source file does not exist: '{src}'")
+
+        # Sanitize new_name to prevent directory traversal in name
+        clean_name = Path(new_name).name
+        if not clean_name or clean_name in (".", ".."):
+            raise ValueError(f"Invalid new file name: '{new_name}'")
+
+        dest = src.parent / clean_name
+        dest = validate_path(dest, self.allowed_roots)
+
+        if dest.exists() and dest != src:
+            raise FileExistsError(f"A file named '{clean_name}' already exists in '{src.parent}'")
+
+        src.rename(dest)
+        return FileActionResult(
+            action=FileActionType.RENAME_FILE,
+            success=True,
+            message=f"Renamed '{src.name}' to '{clean_name}'",
+            affected_count=1,
+            details={"old_path": str(src), "new_path": str(dest), "new_name": clean_name},
+        )
+
+    def delete_file(
+        self,
+        file_path: str | Path,
+        permanent: bool = False,
+    ) -> FileActionResult:
+        """Safely deletes or sends a file to the Recycle Bin."""
+        target = validate_path(file_path, self.allowed_roots)
+        if not target.exists():
+            raise FileNotFoundError(f"Target file does not exist: '{target}'")
+
+        target_name = target.name
+        is_dir = target.is_dir()
+
+        if not permanent:
+            try:
+                import send2trash
+                send2trash.send2trash(str(target))
+                msg = f"Moved '{target_name}' to Recycle Bin."
+            except Exception:
+                if is_dir:
+                    shutil.rmtree(str(target))
+                else:
+                    target.unlink()
+                msg = f"Deleted '{target_name}'."
+        else:
+            if is_dir:
+                shutil.rmtree(str(target))
+            else:
+                target.unlink()
+            msg = f"Permanently deleted '{target_name}'."
+
+        return FileActionResult(
+            action=FileActionType.DELETE_FILE,
+            success=True,
+            message=msg,
+            affected_count=1,
+            details={"deleted_path": str(target), "permanent": permanent},
         )
 
 

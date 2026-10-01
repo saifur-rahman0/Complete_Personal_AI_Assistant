@@ -27,7 +27,9 @@ class SystemOneClassifier(BaseClassifier):
         re.compile(r"\b(organize|sort|clean|cleanup|group)\b", re.IGNORECASE),
     ]
     FILE_SEARCH_PATTERNS = [
-        re.compile(r"\b(search|find|locate|look for|where is)\b", re.IGNORECASE),
+        re.compile(r"\b(search|find|locate|look for|where is|is there|do we have|do i have|check for|show me)\b", re.IGNORECASE),
+        re.compile(r"\b(present\s+any|any\s+\w+\s+(file|pdf|doc|document|image|photo|resume|sheet|receipt|invoice))\b", re.IGNORECASE),
+        re.compile(r"\b(is\s+there\s+present)\b", re.IGNORECASE),
     ]
     FILE_MOVE_PATTERNS = [
         re.compile(r"\b(move|transfer|relocate|shift)\b", re.IGNORECASE),
@@ -163,9 +165,28 @@ class SystemOneClassifier(BaseClassifier):
 
         # Search files
         if self._matches(text, self.FILE_SEARCH_PATTERNS):
-            # Extract pattern like *.pdf or pdf files
-            ext_match = re.search(r"\b(\w+)\s+files?\b", text, re.IGNORECASE)
-            pattern = f"*.{ext_match.group(1).lower()}" if ext_match else "*"
+            # 1. Check for explicit file extension
+            ext_match = re.search(r"\b(\.?[a-zA-Z0-9]+)\s+files?\b", text, re.IGNORECASE)
+            pattern_ext = f"*.{ext_match.group(1).lstrip('.').lower()}" if ext_match else None
+
+            # 2. Extract specific subject keywords (e.g. "resume", "invoice", "taxes", "report")
+            clean_subject = re.sub(
+                r"\b(is|there|present|any|do|we|i|you|have|search|find|locate|look|for|where|check|show|me|all|the|in|from|on|folder|directory|files?|download|documents?|desktop)\b",
+                "",
+                text,
+                flags=re.IGNORECASE,
+            ).strip()
+            clean_subject = re.sub(r"[?!.,;:]", "", clean_subject).strip()
+
+            if clean_subject and pattern_ext:
+                pattern = f"*{clean_subject}*{pattern_ext.replace('*', '')}"
+            elif clean_subject:
+                pattern = f"*{clean_subject}*"
+            elif pattern_ext:
+                pattern = pattern_ext
+            else:
+                pattern = "*"
+
             target = detected_folder or KNOWN_FOLDERS["downloads"]
             return (
                 "search_files",
@@ -174,7 +195,7 @@ class SystemOneClassifier(BaseClassifier):
                     "pattern": pattern,
                     "recursive": True,
                 },
-                0.90,
+                0.92,
             )
 
         # List directory

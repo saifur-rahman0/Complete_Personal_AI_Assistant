@@ -145,5 +145,103 @@
     "text": "I'm having trouble reaching the decision router service. Please ensure all backend microservices are running via 'scripts/run_local.py'.",
     "device": "assistant",
     "created_at": "2026-10-01T16:28:12.849102+00:00"
+  },
+  {
+    "id": "msg_87140409",
+    "role": "user",
+    "text": "hi",
+    "device": "unknown",
+    "created_at": "2026-10-01T16:52:06.234499+00:00"
+  },
+  {
+    "id": "msg_7056ed45",
+    "role": "assistant",
+    "text": "Hello! I'm Jarvis, your personal AI assistant. I can help you with file management, desktop automation, setting reminders, and web research across your Windows and mobile devices. \n\nHow may I assist you today?",
+    "device": "assistant",
+    "created_at": "2026-10-01T16:52:17.597370+00:00"
+  },
+  {
+    "id": "msg_efdb99fa",
+    "role": "user",
+    "text": "find pdfs in download",
+    "device": "unknown",
+    "created_at": "2026-10-01T16:52:34.424885+00:00"
+  },
+  {
+    "id": "msg_d9d21973",
+    "role": "assistant",
+    "text": "Dispatched task 'File Action: Search Files' to Windows Agent (Task ID: b464084b-2882-4ad7-b5a2-bdfba8f3b2ee)",
+    "device": "assistant",
+    "created_at": "2026-10-01T16:52:40.516250+00:00"
+  },
+  {
+    "id": "msg_7ba61e86",
+    "role": "user",
+    "text": "find pdf in download",
+    "device": "unknown",
+    "created_at": "2026-10-01T16:53:03.330552+00:00"
+  },
+  {
+    "id": "msg_7cd8785a",
+    "role": "assistant",
+    "text": "Dispatched task 'File Action: Search Files' to Windows Agent (Task ID: 6f518c0a-fab8-4fdf-bd98-1a79e221af37)",
+    "device": "assistant",
+    "created_at": "2026-10-01T16:53:13.150302+00:00"
+  },
+  {
+    "id": "msg_a22584fb",
+    "role": "user",
+    "text": "find image in download",
+    "device": "unknown",
+    "created_at": "2026-10-01T17:05:56.866632+00:00"
+  },
+  {
+    "id": "msg_556e4bc0",
+    "role": "assistant",
+    "text": "Dispatched task 'File Action: Search Files' to Windows Agent (Task ID: 1b59689b-4322-4d25-87d5-6513493caacd)",
+    "device": "assistant",
+    "created_at": "2026-10-01T17:06:04.602100+00:00"
+  },
+  {
+    "id": "msg_bafb118c",
+    "role": "user",
+    "text": "is there gemini genereted image?",
+    "device": "unknown",
+    "created_at": "2026-10-01T17:06:37.892855+00:00"
+  },
+  {
+    "id": "msg_8a0aac1b",
+    "role": "assistant",
+    "text": "Dispatched task 'File Action: Search Files' to Windows Agent (Task ID: 24ae6234-8820-4eb3-8089-2a4b1bffa195)",
+    "device": "assistant",
+    "created_at": "2026-10-01T17:06:44.742318+00:00"
+  },
+  {
+    "id": "msg_461f1efc",
+    "role": "user",
+    "text": "find pdf in download",
+    "device": "unknown",
+    "created_at": "2026-10-01T17:07:18.630040+00:00"
+  },
+  {
+    "id": "msg_a572eaaf",
+    "role": "assistant",
+    "text": "Dispatched task 'File Action: Search Files' to Windows Agent (Task ID: e065b9df-01f5-4765-8ded-2504e39d093a)",
+    "device": "assistant",
+    "created_at": "2026-10-01T17:07:25.808005+00:00"
+  },
+  {
+    "id": "msg_c269f6b4",
+    "role": "user",
+    "text": "is there any resume?",
+    "device": "unknown",
+    "created_at": "2026-10-01T17:07:40.305686+00:00"
+  },
+  {
+    "id": "msg_ec519fff",
+    "role": "assistant",
+    "text": "Dispatched task 'File Action: Search Files' to Windows Agent (Task ID: c1696c4f-04bc-4277-9c5c-60c4e633d505)",
+    "device": "assistant",
+    "created_at": "2026-10-01T17:07:46.463063+00:00"
   }
 ]

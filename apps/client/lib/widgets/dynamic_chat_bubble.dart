@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:personal_ai_assistant_apps/services/api_service.dart';
 
-class DynamicChatBubble extends StatelessWidget {
+class DynamicChatBubble extends StatefulWidget {
   final Map<String, String> message;
   final Function(String path, bool reveal)? onOpenFile;
 
@@ -14,16 +14,30 @@ class DynamicChatBubble extends StatelessWidget {
   });
 
   @override
+  State<DynamicChatBubble> createState() => _DynamicChatBubbleState();
+}
+
+class _DynamicChatBubbleState extends State<DynamicChatBubble> {
+  final TextEditingController _filterController = TextEditingController();
+  String _filterQuery = '';
+
+  @override
+  void dispose() {
+    _filterController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final role = message['role'] ?? 'assistant';
-    final text = message['text'] ?? '';
+    final role = widget.message['role'] ?? 'assistant';
+    final text = widget.message['text'] ?? '';
     final isUser = role == 'user';
 
     return Align(
       alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 6),
-        constraints: const BoxConstraints(maxWidth: 650),
+        constraints: const BoxConstraints(maxWidth: 680),
         decoration: BoxDecoration(
           color: isUser ? Colors.cyanAccent.shade700 : const Color(0xFF1B202B),
           borderRadius: BorderRadius.circular(16).copyWith(
@@ -58,27 +72,27 @@ class DynamicChatBubble extends StatelessWidget {
   }
 
   Widget _buildAssistantContent(BuildContext context, String text) {
-    // Check if this message represents a file/folder listing
+    // 1. Check if this message represents a file/folder listing
     final fileItems = _extractFileItems(text);
     if (fileItems.isNotEmpty) {
       return _buildFileListContent(context, text, fileItems);
     }
 
-    // Check if this message represents system telemetry
+    // 2. Check if this message represents system telemetry
     if (text.startsWith('System Telemetry:')) {
       return _buildTelemetryContent(context, text);
     }
 
-    // Check if message has a code/content block
+    // 3. Check if message has a code/content block
     if (text.contains('```')) {
       return _buildCodeOrContent(context, text);
     }
 
-    // Fallback: regular formatted text
+    // 4. Fallback: regular formatted text
     return _buildRichTextWithLinks(context, text);
   }
 
-  // --- File List Parsing & Rendering ---
+  // --- File List Parsing & Interactive Rendering ---
 
   List<_ParsedFileItem> _extractFileItems(String text) {
     final items = <_ParsedFileItem>[];
@@ -120,11 +134,19 @@ class DynamicChatBubble extends StatelessWidget {
         );
     final cleanHeader = firstLine.replaceAll('*', '').replaceAll('`', '');
 
+    // Filter files based on user real-time search
+    final displayedFiles = _filterQuery.isEmpty
+        ? files
+        : files.where((f) {
+            return f.name.toLowerCase().contains(_filterQuery) ||
+                f.path.toLowerCase().contains(_filterQuery);
+          }).toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
-        // Header
+        // Header Row
         Row(
           children: [
             Container(
@@ -153,27 +175,81 @@ class DynamicChatBubble extends StatelessWidget {
                 borderRadius: BorderRadius.circular(12),
               ),
               child: Text(
-                '${files.length} items',
+                _filterQuery.isEmpty
+                    ? '${files.length} items'
+                    : '${displayedFiles.length} of ${files.length}',
                 style: const TextStyle(color: Colors.cyanAccent, fontSize: 11, fontWeight: FontWeight.bold),
               ),
             ),
           ],
         ),
-        const SizedBox(height: 12),
+        const SizedBox(height: 10),
+
+        // Real-time Search / Filter bar inside the card
+        if (files.length > 2) ...[
+          Container(
+            height: 36,
+            decoration: BoxDecoration(
+              color: const Color(0xFF131720),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+            ),
+            child: TextField(
+              controller: _filterController,
+              onChanged: (val) {
+                setState(() {
+                  _filterQuery = val.trim().toLowerCase();
+                });
+              },
+              style: const TextStyle(color: Colors.white, fontSize: 12),
+              decoration: InputDecoration(
+                hintText: 'Filter specific files (e.g. resume, pdf, sheet)...',
+                hintStyle: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+                prefixIcon: const Icon(Icons.search, size: 16, color: Colors.cyanAccent),
+                suffixIcon: _filterQuery.isNotEmpty
+                    ? IconButton(
+                        icon: const Icon(Icons.clear, size: 14, color: Colors.grey),
+                        padding: EdgeInsets.zero,
+                        onPressed: () {
+                          _filterController.clear();
+                          setState(() {
+                            _filterQuery = '';
+                          });
+                        },
+                      )
+                    : null,
+                border: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 8),
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ],
 
         // Interactive File List
-        ConstrainedBox(
-          constraints: const BoxConstraints(maxHeight: 340),
-          child: ListView.separated(
-            shrinkWrap: true,
-            itemCount: files.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 6),
-            itemBuilder: (context, index) {
-              final file = files[index];
-              return _buildFileItemTile(context, file);
-            },
+        if (displayedFiles.isEmpty)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 16),
+            child: Center(
+              child: Text(
+                'No files matching "$_filterQuery"',
+                style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+              ),
+            ),
+          )
+        else
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 340),
+            child: ListView.separated(
+              shrinkWrap: true,
+              itemCount: displayedFiles.length,
+              separatorBuilder: (context, index) => const SizedBox(height: 6),
+              itemBuilder: (context, index) {
+                final file = displayedFiles[index];
+                return _buildFileItemTile(context, file);
+              },
+            ),
           ),
-        ),
 
         const SizedBox(height: 8),
         // Tip footer
@@ -255,7 +331,7 @@ class DynamicChatBubble extends StatelessWidget {
             // Open Button
             IconButton(
               icon: const Icon(Icons.open_in_new, size: 16, color: Colors.cyanAccent),
-              tooltip: 'Open',
+              tooltip: 'Open file',
               constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
               padding: EdgeInsets.zero,
               onPressed: () => _openFile(context, file.path, reveal: false),
@@ -267,6 +343,79 @@ class DynamicChatBubble extends StatelessWidget {
               constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
               padding: EdgeInsets.zero,
               onPressed: () => _openFile(context, file.path, reveal: true),
+            ),
+            // Quick Actions Menu
+            PopupMenuButton<String>(
+              icon: const Icon(Icons.more_vert, size: 16, color: Colors.grey),
+              tooltip: 'Quick Actions',
+              color: const Color(0xFF1B202B),
+              elevation: 8,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+                side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+              ),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 30, minHeight: 30),
+              onSelected: (action) => _handleQuickAction(context, file, action),
+              itemBuilder: (ctx) => [
+                const PopupMenuItem(
+                  value: 'preview',
+                  height: 36,
+                  child: Row(
+                    children: [
+                      Icon(Icons.visibility, size: 16, color: Colors.cyanAccent),
+                      SizedBox(width: 8),
+                      Text('Preview Content', style: TextStyle(color: Colors.white, fontSize: 13)),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'copy_path',
+                  height: 36,
+                  child: Row(
+                    children: [
+                      Icon(Icons.copy, size: 16, color: Colors.tealAccent),
+                      SizedBox(width: 8),
+                      Text('Copy Path', style: TextStyle(color: Colors.white, fontSize: 13)),
+                    ],
+                  ),
+                ),
+                const PopupMenuDivider(height: 8),
+                const PopupMenuItem(
+                  value: 'rename',
+                  height: 36,
+                  child: Row(
+                    children: [
+                      Icon(Icons.edit_outlined, size: 16, color: Colors.amberAccent),
+                      SizedBox(width: 8),
+                      Text('Rename', style: TextStyle(color: Colors.white, fontSize: 13)),
+                    ],
+                  ),
+                ),
+                const PopupMenuItem(
+                  value: 'move',
+                  height: 36,
+                  child: Row(
+                    children: [
+                      Icon(Icons.drive_file_move_outlined, size: 16, color: Colors.lightBlueAccent),
+                      SizedBox(width: 8),
+                      Text('Move To...', style: TextStyle(color: Colors.white, fontSize: 13)),
+                    ],
+                  ),
+                ),
+                const PopupMenuDivider(height: 8),
+                const PopupMenuItem(
+                  value: 'delete',
+                  height: 36,
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete_outline, size: 16, color: Colors.redAccent),
+                      SizedBox(width: 8),
+                      Text('Delete / Recycle', style: TextStyle(color: Colors.redAccent, fontSize: 13)),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ],
         ),
@@ -394,8 +543,8 @@ class DynamicChatBubble extends StatelessWidget {
   // --- Helper Methods ---
 
   void _openFile(BuildContext context, String path, {bool reveal = true}) {
-    if (onOpenFile != null) {
-      onOpenFile!(path, reveal);
+    if (widget.onOpenFile != null) {
+      widget.onOpenFile!(path, reveal);
       return;
     }
 
@@ -409,6 +558,434 @@ class DynamicChatBubble extends StatelessWidget {
     );
 
     apiService.openPath(path, reveal: reveal);
+  }
+
+  void _handleQuickAction(BuildContext context, _ParsedFileItem file, String action) {
+    switch (action) {
+      case 'preview':
+        _showFilePreviewModal(context, file);
+        break;
+      case 'copy_path':
+        Clipboard.setData(ClipboardData(text: file.path));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Copied path: ${file.path}'),
+            duration: const Duration(seconds: 2),
+            backgroundColor: const Color(0xFF1B202B),
+          ),
+        );
+        break;
+      case 'rename':
+        _showRenameDialog(context, file);
+        break;
+      case 'move':
+        _showMoveDialog(context, file);
+        break;
+      case 'delete':
+        _showDeleteConfirmDialog(context, file);
+        break;
+    }
+  }
+
+  void _showFilePreviewModal(BuildContext context, _ParsedFileItem file) {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return Dialog(
+          backgroundColor: const Color(0xFF131720),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+          ),
+          child: Container(
+            width: 700,
+            height: 520,
+            padding: const EdgeInsets.all(16),
+            child: FutureBuilder<Map<String, dynamic>?>(
+              future: apiService.readFile(file.path),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(color: Colors.cyanAccent),
+                        SizedBox(height: 12),
+                        Text('Reading file content...', style: TextStyle(color: Colors.grey)),
+                      ],
+                    ),
+                  );
+                }
+
+                if (snapshot.hasError || snapshot.data == null) {
+                  return Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.error_outline, color: Colors.redAccent, size: 36),
+                        const SizedBox(height: 10),
+                        Text(
+                          'Could not preview "${file.name}".',
+                          style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(height: 6),
+                        const Text(
+                          'File might be binary (e.g. PDF/EXE) or access was denied.',
+                          style: TextStyle(color: Colors.grey, fontSize: 12),
+                        ),
+                        const SizedBox(height: 16),
+                        ElevatedButton.icon(
+                          onPressed: () {
+                            Navigator.pop(dialogCtx);
+                            apiService.openPath(file.path, reveal: false);
+                          },
+                          icon: const Icon(Icons.open_in_new, size: 14),
+                          label: const Text('Open in Default App'),
+                        ),
+                      ],
+                    ),
+                  );
+                }
+
+                final data = snapshot.data!;
+                final content = data['content'] as String? ?? '';
+                final isTruncated = data['truncated'] == true;
+
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Header
+                    Row(
+                      children: [
+                        const Icon(Icons.article_outlined, color: Colors.cyanAccent, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                file.name,
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              Text(
+                                file.path,
+                                style: TextStyle(color: Colors.grey.shade500, fontSize: 11),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.copy, size: 16, color: Colors.cyanAccent),
+                          tooltip: 'Copy Content',
+                          onPressed: () {
+                            Clipboard.setData(ClipboardData(text: content));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Content copied to clipboard'), duration: Duration(seconds: 1)),
+                            );
+                          },
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 18, color: Colors.grey),
+                          onPressed: () => Navigator.pop(dialogCtx),
+                        ),
+                      ],
+                    ),
+                    const Divider(color: Colors.white12, height: 16),
+                    // Content
+                    Expanded(
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF0F121A),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                        ),
+                        child: content.isEmpty
+                            ? const Center(child: Text('(File is empty)', style: TextStyle(color: Colors.grey)))
+                            : SingleChildScrollView(
+                                child: SelectableText(
+                                  content,
+                                  style: const TextStyle(
+                                    fontFamily: 'monospace',
+                                    color: Colors.tealAccent,
+                                    fontSize: 12,
+                                    height: 1.45,
+                                  ),
+                                ),
+                              ),
+                      ),
+                    ),
+                    if (isTruncated) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Preview truncated for performance. Total size: ${file.sizeLabel}',
+                        style: TextStyle(color: Colors.amber.shade400, fontSize: 11, fontStyle: FontStyle.italic),
+                      ),
+                    ],
+                  ],
+                );
+              },
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showRenameDialog(BuildContext context, _ParsedFileItem file) {
+    final controller = TextEditingController(text: file.name);
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1B202B),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+          ),
+          title: const Text('Rename File', style: TextStyle(color: Colors.white, fontSize: 16)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Original: ${file.name}',
+                style: TextStyle(color: Colors.grey.shade400, fontSize: 12),
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                style: const TextStyle(color: Colors.white, fontSize: 13),
+                decoration: InputDecoration(
+                  labelText: 'New file name',
+                  labelStyle: const TextStyle(color: Colors.cyanAccent),
+                  filled: true,
+                  fillColor: const Color(0xFF131720),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            ),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(backgroundColor: Colors.cyanAccent.shade700),
+              onPressed: () async {
+                final newName = controller.text.trim();
+                if (newName.isEmpty || newName == file.name) {
+                  Navigator.pop(dialogCtx);
+                  return;
+                }
+                Navigator.pop(dialogCtx);
+                final res = await apiService.renameFile(file.path, newName);
+                if (!context.mounted) return;
+                if (res != null) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Renamed to "$newName" successfully!'),
+                      backgroundColor: Colors.teal.shade800,
+                    ),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Failed to rename file. Check filename or permissions.'),
+                      backgroundColor: Colors.redAccent,
+                    ),
+                  );
+                }
+              },
+              child: const Text('Rename', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showMoveDialog(BuildContext context, _ParsedFileItem file) {
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF1B202B),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+            side: BorderSide(color: Colors.white.withValues(alpha: 0.1)),
+          ),
+          title: Text('Move "${file.name}"', style: const TextStyle(color: Colors.white, fontSize: 16)),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Select destination folder:', style: TextStyle(color: Colors.grey, fontSize: 12)),
+              const SizedBox(height: 12),
+              _buildMoveFolderOption(dialogCtx, context, file, 'Documents', 'Documents'),
+              const SizedBox(height: 6),
+              _buildMoveFolderOption(dialogCtx, context, file, 'Downloads', 'Downloads'),
+              const SizedBox(height: 6),
+              _buildMoveFolderOption(dialogCtx, context, file, 'Desktop', 'Desktop'),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogCtx),
+              child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildMoveFolderOption(
+    BuildContext dialogCtx,
+    BuildContext scaffoldCtx,
+    _ParsedFileItem file,
+    String label,
+    String folderName,
+  ) {
+    return InkWell(
+      onTap: () async {
+        Navigator.pop(dialogCtx);
+        final userProfile = Platform.environment['USERPROFILE'] ?? '';
+        final destDir = userProfile.isNotEmpty ? '$userProfile\\$folderName' : folderName;
+        final res = await apiService.moveFile(file.path, destDir);
+        if (!scaffoldCtx.mounted) return;
+        if (res != null) {
+          ScaffoldMessenger.of(scaffoldCtx).showSnackBar(
+            SnackBar(
+              content: Text('Moved "${file.name}" to $folderName!'),
+              backgroundColor: Colors.teal.shade800,
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(scaffoldCtx).showSnackBar(
+            SnackBar(
+              content: Text('Failed to move "${file.name}".'),
+              backgroundColor: Colors.redAccent,
+            ),
+          );
+        }
+      },
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: const Color(0xFF131720),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.folder, color: Colors.amber, size: 18),
+            const SizedBox(width: 10),
+            Text(label, style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500)),
+            const Spacer(),
+            const Icon(Icons.arrow_forward_ios, color: Colors.grey, size: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _showDeleteConfirmDialog(BuildContext context, _ParsedFileItem file) {
+    bool permanent = false;
+    showDialog(
+      context: context,
+      builder: (dialogCtx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              backgroundColor: const Color(0xFF1B202B),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(color: Colors.redAccent.withValues(alpha: 0.3)),
+              ),
+              title: const Row(
+                children: [
+                  Icon(Icons.warning_amber_rounded, color: Colors.redAccent, size: 22),
+                  SizedBox(width: 8),
+                  Text('Confirm Delete', style: TextStyle(color: Colors.white, fontSize: 16)),
+                ],
+              ),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Are you sure you want to delete "${file.name}"?',
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    file.path,
+                    style: TextStyle(color: Colors.grey.shade400, fontSize: 11),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Checkbox(
+                        value: permanent,
+                        activeColor: Colors.redAccent,
+                        onChanged: (val) {
+                          setDialogState(() {
+                            permanent = val ?? false;
+                          });
+                        },
+                      ),
+                      const Text(
+                        'Permanent delete (skip Recycle Bin)',
+                        style: TextStyle(color: Colors.grey, fontSize: 12),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogCtx),
+                  child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent.shade700),
+                  onPressed: () async {
+                    Navigator.pop(dialogCtx);
+                    final ok = await apiService.deleteFile(file.path, permanent: permanent);
+                    if (!context.mounted) return;
+                    if (ok) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(permanent ? 'Permanently deleted "${file.name}"' : 'Moved "${file.name}" to Recycle Bin'),
+                          backgroundColor: Colors.teal.shade800,
+                        ),
+                      );
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('Failed to delete "${file.name}".'),
+                          backgroundColor: Colors.redAccent,
+                        ),
+                      );
+                    }
+                  },
+                  child: const Text('Delete', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
   }
 
   IconData _getIconForFile(String name, bool isDir) {
