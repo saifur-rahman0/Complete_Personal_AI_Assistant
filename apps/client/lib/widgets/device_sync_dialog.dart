@@ -72,7 +72,54 @@ class _DeviceSyncDialogState extends State<DeviceSyncDialog> {
 
     if (ok) {
       widget.onSyncCompleted();
-      _loadPairedDevices();
+      final paired = await apiService.autoPair();
+      await _loadPairedDevices();
+      if (mounted) {
+        setState(() {
+          _isPairingSuccess = paired;
+          if (paired) {
+            _pairingMessage = 'Success! Phone is automatically paired & synced with Laptop.';
+          }
+        });
+      }
+    }
+  }
+
+  Future<void> _autoPairDevice() async {
+    setState(() {
+      _isLoadingPairing = true;
+      _pairingMessage = null;
+    });
+
+    apiService.setGatewayUrl(_urlController.text);
+    final ok = await apiService.checkHealth();
+    if (ok) {
+      setState(() {
+        _isConnectionSuccess = true;
+        _connectionStatusMessage = 'Connected to ${_urlController.text}';
+      });
+    }
+
+    final success = await apiService.autoPair(
+      deviceId: 'android_companion_phone',
+      deviceName: 'Android Phone',
+      deviceType: 'android',
+    );
+
+    if (!mounted) return;
+    setState(() {
+      _isLoadingPairing = false;
+      _isPairingSuccess = success;
+      if (success) {
+        _pairingMessage = 'Success! Phone is automatically paired & synced with Laptop.';
+      } else {
+        _pairingMessage = 'Auto-pair failed. Check that backend is running on your laptop at ${_urlController.text}.';
+      }
+    });
+
+    if (success) {
+      widget.onSyncCompleted();
+      await _loadPairedDevices();
     }
   }
 
@@ -118,10 +165,8 @@ class _DeviceSyncDialogState extends State<DeviceSyncDialog> {
       _pairingMessage = null;
     });
 
-    // If session ID isn't known, fetch active pairing session or use default
-    final sessionId = _activeSessionId ?? 'session_default';
     final success = await apiService.confirmPairing(
-      pairingSessionId: sessionId,
+      pairingSessionId: _activeSessionId ?? 'session_default',
       pinCode: pin,
       deviceId: 'android_companion_phone',
     );
@@ -369,9 +414,36 @@ class _DeviceSyncDialogState extends State<DeviceSyncDialog> {
                   ),
                 ],
               ] else ...[
-                // Android Phone UI: Enter PIN from PC
+                // Android Phone UI: Auto-pair button and PIN entry
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: _isLoadingPairing ? null : _autoPairDevice,
+                    icon: const Icon(Icons.bolt, color: Colors.black),
+                    label: _isLoadingPairing
+                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.black))
+                        : const Text('Auto-Pair with Laptop (Instant)', style: TextStyle(fontWeight: FontWeight.bold, color: Colors.black)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.tealAccent,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    const Expanded(child: Divider(color: Colors.white12)),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                      child: Text('OR VERIFY WITH 6-DIGIT PIN', style: TextStyle(color: Colors.grey.shade500, fontSize: 11, fontWeight: FontWeight.bold)),
+                    ),
+                    const Expanded(child: Divider(color: Colors.white12)),
+                  ],
+                ),
+                const SizedBox(height: 12),
                 Text(
-                  'Enter the 6-digit PIN shown on your Windows PC to authenticate:',
+                  'Enter the 6-digit PIN shown on your Windows PC screen:',
                   style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
                 ),
                 const SizedBox(height: 10),

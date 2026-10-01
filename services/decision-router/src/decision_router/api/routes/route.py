@@ -34,8 +34,12 @@ def classify_prompt(req: RouteRequest, use_neural: Optional[bool] = None) -> Rou
     else:
         decision = system_one_classifier.classify(req)
 
-    # 2. If System One requires deep reasoning or has low confidence, try LLM extraction
-    if decision.requires_deep_reasoning or decision.confidence < settings.CONFIDENCE_THRESHOLD:
+    # 2. If System One requires deep reasoning or has low confidence, try LLM extraction for file candidates
+    is_file_candidate = (
+        decision.intent == IntentType.FILE_MANAGEMENT
+        or any(w in req.prompt.lower() for w in ["file", "folder", "directory", "download", "document", "desktop", "pdf", "organize", "sort", "move", "clean"])
+    )
+    if is_file_candidate and (decision.requires_deep_reasoning or decision.confidence < settings.CONFIDENCE_THRESHOLD):
         llm_params = llm_extractor.extract_file_parameters(req.prompt)
         if llm_params and "action" in llm_params:
             decision.intent = IntentType.FILE_MANAGEMENT
@@ -96,7 +100,11 @@ def _format_conversational_response(prompt: str) -> str:
     summary="Classify prompt and automatically create task in task-service",
 )
 def dispatch_prompt(req: RouteRequest) -> DispatchResponse:
-    decision = classify_prompt(req)
+    try:
+        decision = classify_prompt(req)
+    except Exception as e:
+        logger.warning(f"Classification encountered an error ({e}); gracefully falling back to System One.")
+        decision = system_one_classifier.classify(req)
 
     # If it is a file management action for the Windows agent, create the task
     if decision.intent == IntentType.FILE_MANAGEMENT and decision.structured_action:

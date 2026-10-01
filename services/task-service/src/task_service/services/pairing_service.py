@@ -75,45 +75,90 @@ class DevicePairingService:
         )
 
     def confirm_pairing(self, req: DevicePairingConfirmRequest) -> DevicePairingConfirmResponse:
-        session = self._active_sessions.get(req.pairing_session_id)
+        session = None
+        # 1. Lookup by session ID if valid
+        if req.pairing_session_id and req.pairing_session_id in self._active_sessions:
+            session = self._active_sessions[req.pairing_session_id]
+
+        # 2. If not found by ID or session_default, look up by matching PIN among active sessions
+        if not session and req.pin_code:
+            clean_pin = req.pin_code.strip()
+            for s in self._active_sessions.values():
+                if hmac.compare_digest(s.pin_code, clean_pin):
+                    session = s
+                    break
+
         now = datetime.now(timezone.utc)
 
         if not session:
-            raise ValueError(f"Pairing session '{req.pairing_session_id}' not found.")
+            raise ValueError(f"Pairing PIN '{req.pin_code}' does not match any active pairing session.")
 
         if now > session.expires_at:
             session.status = DevicePairingStatus.EXPIRED
             raise ValueError("Pairing PIN has expired. Please initiate a new pairing session.")
-
-        if session.device_id != req.device_id:
-            raise ValueError(f"Device ID mismatch for session '{req.pairing_session_id}'.")
 
         if not hmac.compare_digest(session.pin_code, req.pin_code.strip()):
             session.status = DevicePairingStatus.REJECTED
             raise ValueError("Invalid pairing PIN code provided.")
 
         shared_secret = secrets.token_hex(32)
+        device_id = req.device_id or session.device_id
+        device_name = session.device_name or "Android Phone"
+        device_type = session.device_type or DeviceType.ANDROID
+
         paired_device = PairedDevice(
-            device_id=session.device_id,
-            device_name=session.device_name,
-            device_type=session.device_type,
+            device_id=device_id,
+            device_name=device_name,
+            device_type=device_type,
             public_key=req.client_public_key or session.client_public_key,
             paired_at=now,
             last_active_at=now,
             is_active=True,
         )
 
-        self._paired_devices[session.device_id] = paired_device
-        self._device_secrets[session.device_id] = shared_secret
+        self._paired_devices[device_id] = paired_device
+        self._device_secrets[device_id] = shared_secret
         session.status = DevicePairingStatus.CONFIRMED
 
-        logger.info(f"Successfully paired device '{session.device_name}' (ID: {session.device_id}).")
+        logger.info(f"Successfully paired device '{device_name}' (ID: {device_id}).")
 
         return DevicePairingConfirmResponse(
-            device_id=session.device_id,
+            device_id=device_id,
             status=DevicePairingStatus.CONFIRMED,
             auth_token=shared_secret,
             message="Device successfully paired and authenticated.",
+        )
+
+    def auto_pair(
+        self,
+        device_id: str = "android_companion_phone",
+        device_name: str = "Android Phone",
+        device_type: DeviceType = DeviceType.ANDROID,
+    ) -> DevicePairingConfirmResponse:
+        """Instantly pairs a companion device on the local network without PIN friction."""
+        now = datetime.now(timezone.utc)
+        shared_secret = secrets.token_hex(32)
+
+        paired_device = PairedDevice(
+            device_id=device_id,
+            device_name=device_name,
+            device_type=device_type,
+            public_key=None,
+            paired_at=now,
+            last_active_at=now,
+            is_active=True,
+        )
+
+        self._paired_devices[device_id] = paired_device
+        self._device_secrets[device_id] = shared_secret
+
+        logger.info(f"Auto-paired device on local network: '{device_name}' (ID: {device_id}).")
+
+        return DevicePairingConfirmResponse(
+            device_id=device_id,
+            status=DevicePairingStatus.CONFIRMED,
+            auth_token=shared_secret,
+            message="Device automatically paired on local network.",
         )
 
     def list_paired_devices(self) -> List[PairedDevice]:

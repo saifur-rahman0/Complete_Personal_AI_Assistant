@@ -31,10 +31,16 @@ class DevicePairingInitResponse(BaseModel):
 
 
 class DevicePairingConfirmRequest(BaseModel):
-    pairing_session_id: str = Field(description="Pairing session ID from init step")
+    pairing_session_id: Optional[str] = Field(default=None, description="Pairing session ID (optional if pin_code matches active session)")
     pin_code: str = Field(description="6-digit PIN code entered by the user on the companion device")
     device_id: str = Field(description="Device ID completing the confirmation")
     client_public_key: Optional[str] = Field(default=None, description="Client key or challenge signature")
+
+
+class DeviceAutoPairRequest(BaseModel):
+    device_id: str = Field(default="android_companion_phone", description="Unique device identifier")
+    device_name: str = Field(default="Android Phone", description="Device display name")
+    device_type: DeviceType = Field(default=DeviceType.ANDROID, description="Device platform")
 
 
 class DevicePairingConfirmResponse(BaseModel):

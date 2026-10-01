@@ -12,6 +12,16 @@ class ApiService {
   final String routerServiceBaseUrl;
   final String automationServiceBaseUrl;
 
+  bool isPaired = false;
+  String? authToken;
+
+  static final List<String> candidateGatewayUrls = [
+    'http://192.168.1.102:8000',
+    'http://10.0.2.2:8000',
+    'http://127.0.0.1:8000',
+    'http://localhost:8000',
+  ];
+
   ApiService({
     String? gatewayUrl,
     String? taskServiceUrl,
@@ -34,15 +44,15 @@ class ApiService {
   }
 
   static String _defaultHost(int port) {
-    // Android emulator routes host machine loopback to 10.0.2.2
+    // On Android devices, connect directly to the Laptop's Wi-Fi LAN IP
     if (Platform.isAndroid) {
-      return 'http://10.0.2.2:$port';
+      return 'http://192.168.1.102:$port';
     }
     return 'http://127.0.0.1:$port';
   }
 
   final HttpClient _client = HttpClient()
-    ..connectionTimeout = const Duration(seconds: 8);
+    ..connectionTimeout = const Duration(seconds: 4);
 
   Future<Map<String, dynamic>> _httpPost(String url, Map<String, dynamic> body) async {
     final uri = Uri.parse(url);
@@ -223,19 +233,73 @@ class ApiService {
     }
   }
 
-  /// Checks if backend is reachable (Gateway preferred)
+  int _consecutiveFailures = 0;
+  bool _isAutoPairing = false;
+
+  /// Checks if backend is reachable (Gateway preferred) and automatically syncs pairing
   Future<bool> checkHealth() async {
-    try {
-      final res = await _httpGet('$gatewayBaseUrl/health');
-      if (res is Map && (res['status'] == 'ok' || res['service'] == 'gateway')) {
-        return true;
+    // 1. Probe current gatewayBaseUrl
+    if (await _probeUrl('$gatewayBaseUrl/health')) {
+      _consecutiveFailures = 0;
+      if (!isPaired && !_isAutoPairing) {
+        _isAutoPairing = true;
+        autoPair().whenComplete(() => _isAutoPairing = false);
       }
-    } catch (_) {}
+      return true;
+    }
+
+    _consecutiveFailures++;
+
+    // 2. Only probe candidate URLs if current gateway failed repeatedly (prevents mobile lag)
+    if (_consecutiveFailures >= 2) {
+      for (final candidate in candidateGatewayUrls) {
+        if (candidate == gatewayBaseUrl) continue;
+        if (await _probeUrl('$candidate/health')) {
+          gatewayBaseUrl = candidate;
+          _consecutiveFailures = 0;
+          if (!isPaired && !_isAutoPairing) {
+            _isAutoPairing = true;
+            autoPair().whenComplete(() => _isAutoPairing = false);
+          }
+          return true;
+        }
+      }
+    }
+
+    // 3. Fallback direct to task service
     try {
       final res = await _httpGet('$taskServiceBaseUrl/health');
       return res['status'] == 'ok';
     } catch (_) {
       return false;
+    }
+  }
+
+  Future<bool> _probeUrl(String url) async {
+    try {
+      final uri = Uri.parse(url);
+      final request = await _client.getUrl(uri).timeout(const Duration(milliseconds: 900));
+      final response = await request.close().timeout(const Duration(milliseconds: 900));
+      return response.statusCode >= 200 && response.statusCode < 300;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Fetches shared cross-device chat history from Gateway
+  Future<List<Map<String, String>>> getChatHistory() async {
+    try {
+      final data = await _httpGet('$gatewayBaseUrl/api/v1/chats');
+      final list = (data as List<dynamic>?) ?? [];
+      return list.map((item) {
+        final map = item as Map<String, dynamic>;
+        return {
+          'role': (map['role'] as String?) ?? 'assistant',
+          'text': (map['text'] as String?) ?? '',
+        };
+      }).toList();
+    } catch (_) {
+      return [];
     }
   }
 
@@ -285,7 +349,12 @@ class ApiService {
           'device_id': deviceId,
         },
       );
-      return res['status'] == 'confirmed';
+      if (res['status'] == 'confirmed') {
+        isPaired = true;
+        authToken = res['auth_token'] as String?;
+        return true;
+      }
+      return false;
     } catch (_) {
       try {
         final res = await _httpPost(
@@ -296,7 +365,55 @@ class ApiService {
             'device_id': deviceId,
           },
         );
-        return res['status'] == 'confirmed';
+        if (res['status'] == 'confirmed') {
+          isPaired = true;
+          authToken = res['auth_token'] as String?;
+          return true;
+        }
+        return false;
+      } catch (_) {
+        return false;
+      }
+    }
+  }
+
+  /// Automatically pairs device on local network without PIN
+  Future<bool> autoPair({
+    String deviceId = 'android_companion_phone',
+    String deviceName = 'Android Phone',
+    String deviceType = 'android',
+  }) async {
+    try {
+      final res = await _httpPost(
+        '$gatewayBaseUrl/api/v1/devices/pair/auto',
+        {
+          'device_id': deviceId,
+          'device_name': deviceName,
+          'device_type': deviceType,
+        },
+      );
+      if (res['status'] == 'confirmed') {
+        isPaired = true;
+        authToken = res['auth_token'] as String?;
+        return true;
+      }
+      return false;
+    } catch (_) {
+      try {
+        final res = await _httpPost(
+          '$taskServiceBaseUrl/api/v1/devices/pair/auto',
+          {
+            'device_id': deviceId,
+            'device_name': deviceName,
+            'device_type': deviceType,
+          },
+        );
+        if (res['status'] == 'confirmed') {
+          isPaired = true;
+          authToken = res['auth_token'] as String?;
+          return true;
+        }
+        return false;
       } catch (_) {
         return false;
       }

@@ -1,0 +1,79 @@
+[
+  {
+    "id": "msg_initial",
+    "role": "assistant",
+    "text": "Hello! I am your AI assistant. You can give me file management commands, search instructions, or ask questions.",
+    "device": "system",
+    "created_at": "2026-10-01T06:25:00.000000+00:00"
+  },
+  {
+    "id": "msg_78ba13fc",
+    "role": "user",
+    "text": "hi",
+    "device": "unknown",
+    "created_at": "2026-10-01T06:35:47.467253+00:00"
+  },
+  {
+    "id": "msg_3203b8df",
+    "role": "assistant",
+    "text": "Hello! I am Jarvis, your personal AI assistant. I am here to help you with file management, desktop automation, setting reminders, and web research across your devices. \n\nHow may I assist you today?",
+    "device": "assistant",
+    "created_at": "2026-10-01T06:35:58.499202+00:00"
+  },
+  {
+    "id": "msg_7fb65a13",
+    "role": "user",
+    "text": "what can you do?",
+    "device": "unknown",
+    "created_at": "2026-10-01T06:36:13.137747+00:00"
+  },
+  {
+    "id": "msg_29371ea6",
+    "role": "assistant",
+    "text": "Hello! I am Jarvis, your personal AI assistant. I am here to help you manage files, automate desktop tasks, set reminders, and conduct web research across your Windows and mobile devices. \n\nHow may I assist you today?",
+    "device": "assistant",
+    "created_at": "2026-10-01T06:36:19.518383+00:00"
+  },
+  {
+    "id": "msg_4901de67",
+    "role": "user",
+    "text": "who r u?",
+    "device": "unknown",
+    "created_at": "2026-10-01T06:37:07.418702+00:00"
+  },
+  {
+    "id": "msg_195b769f",
+    "role": "assistant",
+    "text": "Hello! I am Jarvis, your personal AI assistant for Windows and mobile devices. I am here to help you with file",
+    "device": "assistant",
+    "created_at": "2026-10-01T06:37:14.572697+00:00"
+  },
+  {
+    "id": "msg_08b112bc",
+    "role": "user",
+    "text": "ok give the files list from download",
+    "device": "unknown",
+    "created_at": "2026-10-01T06:37:35.895945+00:00"
+  },
+  {
+    "id": "msg_03f06484",
+    "role": "assistant",
+    "text": "Dispatched task 'File Action: List Directory' to Windows Agent (Task ID: a8906eed-d2a1-4240-90b9-ac6a0e914c51)",
+    "device": "assistant",
+    "created_at": "2026-10-01T06:37:37.119593+00:00"
+  },
+  {
+    "id": "msg_5034908b",
+    "role": "user",
+    "text": "ok give the files list from download",
+    "device": "unknown",
+    "created_at": "2026-10-01T14:45:08.980214+00:00"
+  },
+  {
+    "id": "msg_1d3630c1",
+    "role": "assistant",
+    "text": "Dispatched task 'File Action: List Directory' to Windows Agent (Task ID: c636eb08-ad8f-4e09-9cc9-12e65d51e947)",
+    "device": "assistant",
+    "created_at": "2026-10-01T14:45:12.053038+00:00"
+  }
+]

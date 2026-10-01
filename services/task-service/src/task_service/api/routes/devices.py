@@ -1,6 +1,7 @@
 from typing import List
 from fastapi import APIRouter, HTTPException, status
 from contracts.devices.models import (
+    DeviceAutoPairRequest,
     DevicePairingConfirmRequest,
     DevicePairingConfirmResponse,
     DevicePairingInitRequest,
@@ -23,6 +24,15 @@ def confirm_pairing(req: DevicePairingConfirmRequest) -> DevicePairingConfirmRes
         return pairing_service.confirm_pairing(req)
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+
+@router.post("/pair/auto", response_model=DevicePairingConfirmResponse, summary="Automatically pair companion on local network")
+def auto_pair_device(req: DeviceAutoPairRequest) -> DevicePairingConfirmResponse:
+    return pairing_service.auto_pair(
+        device_id=req.device_id,
+        device_name=req.device_name,
+        device_type=req.device_type,
+    )
 
 
 @router.get("/paired", response_model=List[PairedDevice], summary="List all active paired companion devices")

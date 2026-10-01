@@ -28,6 +28,7 @@ class _HomeViewState extends State<HomeView> {
   bool _isLoading = false;
   bool _isResolvingApproval = false;
   bool _isBackendOnline = false;
+  bool _isRefreshing = false;
   Timer? _pollingTimer;
 
   int _selectedMobileTab = 0;
@@ -36,8 +37,8 @@ class _HomeViewState extends State<HomeView> {
   void initState() {
     super.initState();
     _refreshData();
-    // Poll every 3 seconds for task progress and approval updates
-    _pollingTimer = Timer.periodic(const Duration(seconds: 3), (_) => _refreshData(silent: true));
+    // Poll every 4 seconds with concurrency guard to avoid network congestion
+    _pollingTimer = Timer.periodic(const Duration(seconds: 4), (_) => _refreshData(silent: true));
   }
 
   @override
@@ -56,18 +57,39 @@ class _HomeViewState extends State<HomeView> {
   }
 
   Future<void> _refreshData({bool silent = false}) async {
-    final online = await apiService.checkHealth();
-    if (!mounted) return;
+    if (_isRefreshing) return; // Prevent overlapping HTTP calls on mobile
+    _isRefreshing = true;
 
-    final tasks = await apiService.getTasks();
-    final approvals = await apiService.getPendingApprovals();
+    try {
+      final online = await apiService.checkHealth();
+      if (!mounted) return;
 
-    if (!mounted) return;
-    setState(() {
-      _isBackendOnline = online;
-      _tasks = tasks;
-      _pendingApprovals = approvals;
-    });
+      if (online) {
+        final tasks = await apiService.getTasks();
+        final approvals = await apiService.getPendingApprovals();
+        final sharedChats = await apiService.getChatHistory();
+
+        if (!mounted) return;
+        setState(() {
+          _isBackendOnline = true;
+          _tasks = tasks;
+          _pendingApprovals = approvals;
+          if (sharedChats.isNotEmpty) {
+            _messages.clear();
+            _messages.addAll(sharedChats);
+          }
+        });
+      } else {
+        if (!mounted) return;
+        setState(() {
+          _isBackendOnline = false;
+        });
+      }
+    } catch (_) {
+      // Gracefully handle network blips
+    } finally {
+      _isRefreshing = false;
+    }
   }
 
   Future<void> _handleCommand(String prompt) async {
@@ -167,7 +189,9 @@ class _HomeViewState extends State<HomeView> {
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          _isBackendOnline ? 'ONLINE' : 'CONNECT',
+                          _isBackendOnline
+                              ? (apiService.isPaired ? 'SYNCED' : 'ONLINE')
+                              : 'CONNECT',
                           style: TextStyle(
                             color: _isBackendOnline ? Colors.tealAccent : Colors.redAccent,
                             fontSize: 11,

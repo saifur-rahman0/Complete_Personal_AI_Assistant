@@ -1,4 +1,5 @@
 from fastapi import APIRouter
+from gateway.api.routes.chats import router as chats_router
 from gateway.api.routes.devices import router as devices_router
 from gateway.api.routes.dispatch import router as dispatch_router
 from gateway.api.routes.health import router as health_router
@@ -11,6 +12,7 @@ from gateway.api.routes.tasks import router as tasks_router
 api_router = APIRouter()
 api_router.include_router(health_router)
 api_router.include_router(dispatch_router)
+api_router.include_router(chats_router)
 api_router.include_router(tasks_router)
 api_router.include_router(reminders_router)
 api_router.include_router(research_router)

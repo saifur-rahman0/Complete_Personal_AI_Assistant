@@ -21,6 +21,30 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 PYTHON_EXE = sys.executable
 
+
+def _load_env_file(env_path: Path) -> None:
+    if not env_path.exists():
+        return
+    try:
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if line.startswith("$env:"):
+                    line = line[5:].strip()
+                if "=" in line:
+                    k, v = line.split("=", 1)
+                    k = k.strip()
+                    v = v.strip().strip("'\"")
+                    if k and k not in os.environ:
+                        os.environ[k] = v
+    except Exception as e:
+        print(f"Warning: could not read {env_path}: {e}")
+
+
+_load_env_file(ROOT_DIR / ".env")
+
 SERVICES = [
     {
         "name": "gateway",
@@ -199,8 +223,19 @@ def main():
     print("   - Automation Service:     http://127.0.0.1:8003")
     print("   - Web Research:           http://127.0.0.1:8004")
     print("   - Windows Agent:          Active (polling port 8001)")
+    gemini_model_name = os.environ.get("GEMINI_MODEL", "gemini-3.8-flash")
+    llm_provider = (
+        f"Google Gemini ({gemini_model_name}) (Online, Instant)"
+        if os.environ.get("GEMINI_API_KEY")
+        else (
+            "Groq Cloud Llama 3.3 (Online, Instant)"
+            if os.environ.get("GROQ_API_KEY")
+            else "Ollama qwen2.5:7b (Local Fallback)"
+        )
+    )
+    print(f"   - Conversational LLM:     {llm_provider}")
     print("   - Flutter Client:         Launch via 'flutter run' in apps/client")
-    print("   - Device Pairing:         Use 6-digit PIN in Flutter client to pair Phone")
+    print("   - Device Pairing:         Zero-PIN Auto-Pairing Active on Wi-Fi")
     print(" Press Ctrl+C to terminate all services.")
     print("=" * 60 + "\n")
 

@@ -1,4 +1,7 @@
+from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+_ROOT_ENV = Path(__file__).resolve().parent.parent.parent.parent.parent / ".env"
 
 
 class RouterSettings(BaseSettings):
@@ -22,7 +25,21 @@ class RouterSettings(BaseSettings):
     USE_NEURAL_LAYA: bool = False
     LAYA_MODEL_NAME: str = "convaiinnovations/laya"
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    # Online Cloud LLM provider configuration
+    ONLINE_LLM_PROVIDER: str = "auto"  # "auto", "gemini", "groq", "openai", "ollama"
+    GEMINI_API_KEY: str | None = None
+    GEMINI_MODEL: str = "gemini-3.8-flash"
+    GROQ_API_KEY: str | None = None
+    GROQ_MODEL: str = "llama-3.3-70b-versatile"
+    OPENAI_API_KEY: str | None = None
+    OPENAI_MODEL: str = "gpt-4o-mini"
+    OPENAI_BASE_URL: str = "https://api.openai.com/v1"
+
+    model_config = SettingsConfigDict(
+        env_file=(".env", str(_ROOT_ENV)),
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 settings = RouterSettings()

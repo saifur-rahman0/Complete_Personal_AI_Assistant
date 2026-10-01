@@ -178,4 +178,62 @@ def test_dispatch_desktop_automation(client):
         assert data["task"]["id"] == "mock-desktop-task-id"
 
 
+def test_llm_extractor_gemini_online():
+    from unittest.mock import MagicMock, patch
+    from decision_router.classifiers.llm_extractor import llm_extractor
+    from decision_router.config import settings
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "candidates": [
+            {
+                "content": {
+                    "parts": [{"text": "Hello! I am Jarvis running on Google Gemini."}]
+                }
+            }
+        ]
+    }
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_client = MagicMock()
+    mock_client.post.return_value = mock_resp
+    mock_client.__enter__.return_value = mock_client
+    mock_client.__exit__.return_value = None
+
+    with patch.object(settings, "GEMINI_API_KEY", "test-gemini-key"):
+        with patch("decision_router.classifiers.llm_extractor.httpx.Client", return_value=mock_client):
+            reply = llm_extractor.generate_chat_response("hi")
+            assert reply == "Hello! I am Jarvis running on Google Gemini."
+
+
+def test_llm_extractor_groq_online():
+    from unittest.mock import MagicMock, patch
+    from decision_router.classifiers.llm_extractor import llm_extractor
+    from decision_router.config import settings
+
+    mock_resp = MagicMock()
+    mock_resp.status_code = 200
+    mock_resp.json.return_value = {
+        "choices": [
+            {
+                "message": {"content": "Hello! Ultra-fast response from Groq Llama 3.3."}
+            }
+        ]
+    }
+    mock_resp.raise_for_status = MagicMock()
+
+    mock_client = MagicMock()
+    mock_client.post.return_value = mock_resp
+    mock_client.__enter__.return_value = mock_client
+    mock_client.__exit__.return_value = None
+
+    with patch.object(settings, "GEMINI_API_KEY", None):
+        with patch.object(settings, "GROQ_API_KEY", "test-groq-key"):
+            with patch("decision_router.classifiers.llm_extractor.httpx.Client", return_value=mock_client):
+                reply = llm_extractor.generate_chat_response("hello")
+                assert reply == "Hello! Ultra-fast response from Groq Llama 3.3."
+
+
+
 

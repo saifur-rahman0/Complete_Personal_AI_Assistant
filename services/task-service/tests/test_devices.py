@@ -63,3 +63,48 @@ def test_device_pairing_api_flow(client):
     delete_res = client.delete("/api/v1/devices/phone-test-100")
     assert delete_res.status_code == 200
     assert delete_res.json()["status"] == "ok"
+
+
+def test_auto_pair_device(client):
+    res = client.post(
+        "/api/v1/devices/pair/auto",
+        json={
+            "device_id": "phone-auto-001",
+            "device_name": "Living Room Android",
+            "device_type": "android",
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["status"] == "confirmed"
+    assert "auth_token" in data
+
+    # Verify device is immediately listed as paired
+    list_res = client.get("/api/v1/devices/paired")
+    assert list_res.status_code == 200
+    devices = list_res.json()
+    assert any(d["device_id"] == "phone-auto-001" for d in devices)
+
+
+def test_confirm_pairing_by_pin_only(client):
+    init_res = client.post(
+        "/api/v1/devices/pair/init",
+        json={
+            "device_id": "phone-pin-only",
+            "device_name": "Companion Phone",
+            "device_type": "android",
+        },
+    )
+    pin = init_res.json()["pin_code"]
+
+    # Confirm using only PIN without knowing the session UUID
+    confirm_res = client.post(
+        "/api/v1/devices/pair/confirm",
+        json={
+            "pin_code": pin,
+            "device_id": "phone-pin-only",
+        },
+    )
+    assert confirm_res.status_code == 200
+    assert confirm_res.json()["status"] == "confirmed"
+

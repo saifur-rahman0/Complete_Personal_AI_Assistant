@@ -3,6 +3,7 @@ from typing import Any, Dict
 from fastapi import APIRouter, Header, HTTPException, Request, status
 import httpx
 from contracts.gateway.models import GatewayEventType
+from gateway.chat_store import chat_store
 from gateway.config import settings
 from gateway.sync import sync_engine
 
@@ -17,13 +18,23 @@ async def dispatch_prompt(
     x_device_id: str = Header(default="unknown"),
 ):
     body = await request.json()
+    prompt = body.get("prompt", "")
     headers = {"X-Correlation-ID": x_correlation_id, "X-Device-Id": x_device_id}
+
+    # Record user message to synchronized chat history
+    if prompt:
+        chat_store.add_message(role="user", text=prompt, device=x_device_id)
 
     try:
         async with httpx.AsyncClient(base_url=settings.ROUTER_SERVICE_URL, timeout=15.0) as client:
             resp = await client.post("/api/v1/router/dispatch", json=body, headers=headers)
             resp.raise_for_status()
             data = resp.json()
+
+            # Record assistant reply to synchronized chat history
+            reply = data.get("message")
+            if reply:
+                chat_store.add_message(role="assistant", text=reply, device="assistant")
 
             # Record event in sync engine journal and broadcast
             task = data.get("task")
@@ -38,7 +49,21 @@ async def dispatch_prompt(
             return data
     except Exception as e:
         logger.error(f"Error dispatching to router: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Downstream decision-router error: {str(e)}",
+        fallback_msg = (
+            "I'm having trouble reaching the decision router service. "
+            "Please ensure all backend microservices are running via 'scripts/run_local.py'."
         )
+        chat_store.add_message(role="assistant", text=fallback_msg, device="assistant")
+        return {
+            "decision": {
+                "intent": "general_query",
+                "confidence": 0.0,
+                "target_service": "none",
+                "requires_deep_reasoning": False,
+                "structured_action": None,
+                "structured_payload": {},
+                "latency_ms": 0.0,
+            },
+            "task": None,
+            "message": fallback_msg,
+        }

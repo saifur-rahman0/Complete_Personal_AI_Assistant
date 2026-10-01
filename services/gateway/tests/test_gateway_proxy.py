@@ -107,3 +107,27 @@ def test_websocket_ping_pong():
         websocket.send_text("ping")
         data = websocket.receive_text()
         assert data == "pong"
+
+
+def test_chats_get_and_post():
+    # 1. Get initial chats
+    resp = client.get("/api/v1/chats")
+    assert resp.status_code == 200
+    assert len(resp.json()) >= 1
+
+    # 2. Post a new chat
+    post_resp = client.post(
+        "/api/v1/chats",
+        json={"role": "user", "text": "Hello from Phone", "device": "android_phone"},
+    )
+    assert post_resp.status_code == 200
+    data = post_resp.json()
+    assert data["role"] == "user"
+    assert data["text"] == "Hello from Phone"
+
+    # 3. Verify it appears in chat history
+    resp2 = client.get("/api/v1/chats")
+    assert resp2.status_code == 200
+    messages = resp2.json()
+    assert any(m["text"] == "Hello from Phone" for m in messages)
+
