@@ -79,6 +79,19 @@ class _HomeViewState extends State<HomeView> {
             _messages.clear();
             _messages.addAll(sharedChats);
           }
+          // Update any messages displaying placeholder Task ID with completed file results
+          for (final task in tasks) {
+            if (task.status.toLowerCase() == 'completed' &&
+                task.resultSummary != null &&
+                task.resultSummary!.isNotEmpty) {
+              for (int i = 0; i < _messages.length; i++) {
+                final text = _messages[i]['text'] ?? '';
+                if (text.contains('Task ID: ${task.id}')) {
+                  _messages[i]['text'] = task.resultSummary!;
+                }
+              }
+            }
+          }
         });
       } else {
         if (!mounted) return;
@@ -103,10 +116,17 @@ class _HomeViewState extends State<HomeView> {
       final result = await apiService.dispatchPrompt(prompt);
       if (!mounted) return;
 
+      final messageText = (result.createdTask != null &&
+              result.createdTask!.status.toLowerCase() == 'completed' &&
+              result.createdTask!.resultSummary != null &&
+              result.createdTask!.resultSummary!.isNotEmpty)
+          ? result.createdTask!.resultSummary!
+          : result.message;
+
       setState(() {
         _messages.add({
           'role': 'assistant',
-          'text': result.message,
+          'text': messageText,
         });
       });
       await _refreshData();

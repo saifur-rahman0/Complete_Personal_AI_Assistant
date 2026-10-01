@@ -20,12 +20,14 @@ class FakeTaskClient:
         status: Optional[TaskStatus] = None,
         result_summary: Optional[str] = None,
         error_message: Optional[str] = None,
+        result_data: Optional[Dict[str, Any]] = None,
     ) -> None:
         self.task_updates.append({
             "task_id": task_id,
             "status": status,
             "result_summary": result_summary,
             "error_message": error_message,
+            "result_data": result_data,
         })
 
     def request_approval(self, task_id: str, action_type: str, description: str, details: dict = None) -> ApprovalResponse:
@@ -88,7 +90,7 @@ def test_executor_read_only_task(sandbox_env):
     # Verify completed
     final_update = fake_client.task_updates[-1]
     assert final_update["status"] == TaskStatus.COMPLETED
-    assert "Listed 1 items" in final_update["result_summary"]
+    assert "1 item" in final_update["result_summary"]
 
 
 def test_executor_move_file_approved(sandbox_env):

@@ -1,3 +1,4 @@
+import difflib
 import os
 import re
 import shutil
@@ -5,7 +6,7 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from contracts.files.models import (
     FileActionResult,
@@ -15,53 +16,38 @@ from contracts.files.models import (
 from windows_agent.config import settings
 from windows_agent.safety import validate_path
 
-# Standard category mapping for folder reorganization
 EXTENSION_CATEGORIES: Dict[str, str] = {
-    # Documents
-    ".pdf": "Documents",
-    ".doc": "Documents",
-    ".docx": "Documents",
-    ".txt": "Documents",
-    ".rtf": "Documents",
-    ".odt": "Documents",
-    ".xlsx": "Documents/Spreadsheets",
-    ".xls": "Documents/Spreadsheets",
-    ".csv": "Documents/Spreadsheets",
-    ".pptx": "Documents/Presentations",
-    ".ppt": "Documents/Presentations",
-    # Images
-    ".png": "Images",
-    ".jpg": "Images",
-    ".jpeg": "Images",
-    ".gif": "Images",
-    ".webp": "Images",
-    ".svg": "Images",
-    ".bmp": "Images",
-    ".ico": "Images",
-    # Audio & Video
-    ".mp4": "Videos",
-    ".mkv": "Videos",
-    ".mov": "Videos",
-    ".avi": "Videos",
-    ".webm": "Videos",
-    ".mp3": "Audio",
-    ".wav": "Audio",
-    ".flac": "Audio",
-    ".m4a": "Audio",
-    # Archives & Installers
-    ".zip": "Archives",
-    ".rar": "Archives",
-    ".7z": "Archives",
-    ".tar": "Archives",
-    ".gz": "Archives",
-    ".exe": "Installers",
-    ".msi": "Installers",
-    # Code & Data
-    ".py": "Code",
-    ".json": "Data",
-    ".yaml": "Data",
-    ".yml": "Data",
-    ".sql": "Data",
+    ".pdf": "Documents", ".doc": "Documents", ".docx": "Documents", ".txt": "Documents",
+    ".xlsx": "Documents/Spreadsheets", ".xls": "Documents/Spreadsheets", ".csv": "Documents/Spreadsheets",
+    ".pptx": "Documents/Presentations", ".ppt": "Documents/Presentations",
+    ".png": "Images", ".jpg": "Images", ".jpeg": "Images", ".gif": "Images", ".webp": "Images",
+    ".mp4": "Videos", ".mkv": "Videos", ".mov": "Videos", ".avi": "Videos",
+    ".mp3": "Audio", ".wav": "Audio", ".flac": "Audio",
+    ".zip": "Archives", ".rar": "Archives", ".7z": "Archives",
+    ".exe": "Installers", ".msi": "Installers",
+    ".py": "Code", ".json": "Data",
+}
+
+CATEGORY_EXTENSIONS: Dict[str, List[str]] = {
+    "image": [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg"],
+    "images": [".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".svg"],
+    "photo": [".png", ".jpg", ".jpeg", ".webp", ".gif"],
+    "photos": [".png", ".jpg", ".jpeg", ".webp", ".gif"],
+    "picture": [".png", ".jpg", ".jpeg", ".webp", ".gif"],
+    "pictures": [".png", ".jpg", ".jpeg", ".webp", ".gif"],
+    "video": [".mp4", ".mkv", ".mov", ".avi", ".webm"],
+    "videos": [".mp4", ".mkv", ".mov", ".avi", ".webm"],
+    "movie": [".mp4", ".mkv", ".mov", ".avi", ".webm"],
+    "audio": [".mp3", ".wav", ".flac", ".m4a", ".aac"],
+    "music": [".mp3", ".wav", ".flac", ".m4a", ".aac"],
+    "song": [".mp3", ".wav", ".flac", ".m4a", ".aac"],
+    "document": [".pdf", ".docx", ".doc", ".txt", ".xlsx", ".pptx"],
+    "documents": [".pdf", ".docx", ".doc", ".txt", ".xlsx", ".pptx"],
+    "doc": [".docx", ".doc", ".pdf", ".txt"],
+    "pdf": [".pdf"],
+    "sheet": [".xlsx", ".xls", ".csv"],
+    "sheets": [".xlsx", ".xls", ".csv"],
+    "presentation": [".pptx", ".ppt"],
 }
 
 
@@ -132,67 +118,120 @@ class FileTools:
         # 2. Parse search pattern for keywords and required extension
         clean = (pattern or "*").strip().lower()
         required_ext: Optional[str] = None
+        category_exts: List[str] = []
         keywords: List[str] = []
 
-        # Check for extension like *.pdf or "pdf"
+        # Check for explicit extension like *.pdf or "pdf"
         ext_match = re.search(r"\*?\.([a-zA-Z0-9]+)\b", clean)
         if ext_match:
             required_ext = f".{ext_match.group(1).lower()}"
             clean = re.sub(r"\*?\.[a-zA-Z0-9]+\b", "", clean)
 
+        # Stop words to ignore during file search
+        stop_words = {
+            "files", "file", "all", "any", "present", "there", "in", "from",
+            "on", "is", "do", "we", "have", "check", "find", "search",
+            "show", "me", "get", "look", "locate", "where", "what"
+        }
+
         for token in clean.replace("*", " ").split():
             token = token.strip()
-            if token in ("files", "file", "all", "any", "present", "there", "in", "from", "on"):
+            if token in stop_words:
                 continue
+            if token in CATEGORY_EXTENSIONS:
+                category_exts.extend(CATEGORY_EXTENSIONS[token])
             if token in ("pdf", "docx", "doc", "txt", "xlsx", "xls", "png", "jpg", "jpeg", "zip", "exe", "py", "json"):
                 required_ext = f".{token}"
             elif len(token) >= 2:
                 keywords.append(token)
 
-        results: List[FileInfo] = []
+        category_exts = list(set(category_exts))
+
+        scored_entries: List[Tuple[float, FileInfo]] = []
+        recent_fallback: List[FileInfo] = []
         seen_paths = set()
 
         for s_dir in search_dirs:
-            if len(results) >= max_results:
-                break
             iterator = s_dir.rglob("*") if recursive else s_dir.iterdir()
             for entry in iterator:
-                if len(results) >= max_results:
-                    break
                 try:
                     entry_path_str = str(entry.resolve())
                     if entry_path_str in seen_paths:
                         continue
-
-                    # Filter: if looking for files, skip directories
-                    if entry.is_dir() and (required_ext or keywords):
+                    if entry.is_dir() and (required_ext or category_exts or keywords):
                         continue
 
                     entry_name_lower = entry.name.lower()
+                    entry_ext = entry.suffix.lower()
 
-                    # Check extension match
-                    if required_ext and not entry_name_lower.endswith(required_ext):
+                    # Exact extension filter if explicitly requested (e.g. *.pdf)
+                    if required_ext and entry_ext != required_ext:
                         continue
-
-                    # Check keyword terms match (substring in filename)
-                    if keywords:
-                        if not all(kw in entry_name_lower for kw in keywords):
-                            continue
 
                     seen_paths.add(entry_path_str)
                     stat = entry.stat()
                     mod_time = datetime.fromtimestamp(stat.st_mtime, timezone.utc)
-                    results.append(
-                        FileInfo(
-                            name=entry.name,
-                            path=entry_path_str,
-                            is_directory=entry.is_dir(),
-                            size_bytes=stat.st_size if entry.is_file() else 0,
-                            modified_at=mod_time,
-                        )
+                    file_info = FileInfo(
+                        name=entry.name,
+                        path=entry_path_str,
+                        is_directory=entry.is_dir(),
+                        size_bytes=stat.st_size if entry.is_file() else 0,
+                        modified_at=mod_time,
                     )
+                    recent_fallback.append(file_info)
+
+                    # Calculate fuzzy matching score
+                    matches_category = entry_ext in category_exts if category_exts else False
+
+                    if not keywords:
+                        if matches_category or required_ext:
+                            score = 1.0
+                        else:
+                            score = 0.5
+                    else:
+                        file_tokens = [t for t in re.split(r"[\s._\-()]+", entry_name_lower) if len(t) >= 2]
+                        matched_kw_count = 0
+
+                        for kw in keywords:
+                            # 1. Exact substring match in full filename
+                            if kw in entry_name_lower:
+                                matched_kw_count += 1
+                                continue
+                            # 2. Fuzzy similarity match against tokens (handles typos like 'genereted' -> 'generated')
+                            token_match = False
+                            for ft in file_tokens:
+                                if difflib.SequenceMatcher(None, kw, ft).ratio() >= 0.72:
+                                    token_match = True
+                                    break
+                            if token_match:
+                                matched_kw_count += 1
+
+                        score = matched_kw_count / len(keywords)
+                        if matches_category:
+                            score += 0.25
+
+                    # Threshold for inclusion
+                    min_thresh = 0.45 if len(keywords) >= 2 else (0.8 if keywords else 0.0)
+                    if score >= min_thresh or (matches_category and score > 0.0):
+                        scored_entries.append((score, file_info))
+
                 except (PermissionError, OSError):
                     continue
+
+        # Sort by relevance score descending, then by newest modification time
+        scored_entries.sort(
+            key=lambda x: (x[0], x[1].modified_at or datetime.min.replace(tzinfo=timezone.utc)),
+            reverse=True,
+        )
+        results = [x[1] for x in scored_entries[:max_results]]
+
+        # Fallback to the 20 most recent files if no match was found
+        if not results and recent_fallback:
+            recent_fallback.sort(
+                key=lambda x: x.modified_at or datetime.min.replace(tzinfo=timezone.utc),
+                reverse=True,
+            )
+            results = recent_fallback[:20]
 
         return results
 

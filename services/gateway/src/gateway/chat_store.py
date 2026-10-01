@@ -70,5 +70,17 @@ class ChatMessageStore:
     def get_messages(self, limit: int = 50) -> List[Dict[str, Any]]:
         return self._messages[-limit:]
 
+    def update_task_message(self, task_id: str, new_text: str) -> bool:
+        """Updates any placeholder 'Dispatched task... (Task ID: ...)' message with completed result."""
+        updated = False
+        target_str = f"Task ID: {task_id}"
+        for msg in self._messages:
+            if target_str in msg.get("text", ""):
+                msg["text"] = new_text
+                updated = True
+        if updated:
+            self._save_to_disk()
+        return updated
+
 
 chat_store = ChatMessageStore()

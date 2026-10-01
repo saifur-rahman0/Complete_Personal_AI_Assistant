@@ -6,6 +6,15 @@ from decision_router.classifiers.system_one import system_one_classifier
 from decision_router.main import create_app
 
 
+from decision_router.config import settings
+
+
+@pytest.fixture(autouse=True)
+def disable_neural_for_router_tests(monkeypatch):
+    """Ensures test_router.py tests run fast offline heuristics."""
+    monkeypatch.setattr(settings, "USE_NEURAL_LAYA", False)
+
+
 @pytest.fixture
 def client():
     app = create_app()

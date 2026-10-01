@@ -48,6 +48,23 @@ class SystemOneClassifier(BaseClassifier):
         start_time = time.perf_counter()
         text = request.prompt.strip()
 
+        # 0. Fast-path conversational greetings, identity, and pleasantries (<0.01ms, 0 tokens)
+        prompt_lower = text.lower()
+        if (
+            re.match(r"^(hi|hello|hey|greetings|howdy|good\s+(morning|afternoon|evening))[!.,? ]*$", prompt_lower)
+            or any(q == prompt_lower.rstrip("?!., ") for q in ["who are you", "what can you do", "help", "capabilities", "what are you", "how are you", "thank you", "thanks", "thanks a lot", "great job", "awesome"])
+        ):
+            latency = (time.perf_counter() - start_time) * 1000
+            return RouteDecision(
+                intent=IntentType.GENERAL_QUERY,
+                confidence=1.0,
+                target_service="llm-chat",
+                requires_deep_reasoning=False,
+                structured_action="chat_completion",
+                structured_payload={"prompt": text},
+                latency_ms=round(latency, 2),
+            )
+
         # 1. Check Reminder intent
         if self._matches(text, self.REMINDER_PATTERNS):
             latency = (time.perf_counter() - start_time) * 1000
@@ -179,7 +196,11 @@ class SystemOneClassifier(BaseClassifier):
             clean_subject = re.sub(r"[?!.,;:]", "", clean_subject).strip()
 
             if clean_subject and pattern_ext:
-                pattern = f"*{clean_subject}*{pattern_ext.replace('*', '')}"
+                raw_ext = pattern_ext.lstrip("*").lstrip(".").lower()
+                if clean_subject.lower() == raw_ext:
+                    pattern = pattern_ext
+                else:
+                    pattern = f"*{clean_subject}*{pattern_ext.replace('*', '')}"
             elif clean_subject:
                 pattern = f"*{clean_subject}*"
             elif pattern_ext:

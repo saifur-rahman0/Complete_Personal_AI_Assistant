@@ -22,7 +22,7 @@ class RouterSettings(BaseSettings):
     CONFIDENCE_THRESHOLD: float = 0.75
 
     # System One Neural Laya classifier configuration
-    USE_NEURAL_LAYA: bool = False
+    USE_NEURAL_LAYA: bool = True
     LAYA_MODEL_NAME: str = "convaiinnovations/laya"
 
     # Online Cloud LLM provider configuration

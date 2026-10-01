@@ -33,7 +33,7 @@ async def dispatch_prompt(
     ]
 
     try:
-        async with httpx.AsyncClient(base_url=settings.ROUTER_SERVICE_URL, timeout=15.0) as client:
+        async with httpx.AsyncClient(base_url=settings.ROUTER_SERVICE_URL, timeout=30.0) as client:
             resp = await client.post("/api/v1/router/dispatch", json=body, headers=headers)
             resp.raise_for_status()
             data = resp.json()

@@ -4,6 +4,7 @@ from fastapi import APIRouter, HTTPException, Request, Response, status
 import httpx
 from contracts.gateway.models import GatewayEventType
 from gateway.audit import audit_logger
+from gateway.chat_store import chat_store
 from gateway.config import settings
 from gateway.sync import sync_engine
 
@@ -17,7 +18,12 @@ async def list_tasks(request: Request):
         async with httpx.AsyncClient(base_url=settings.TASK_SERVICE_URL, timeout=8.0) as client:
             resp = await client.get("/api/v1/tasks", params=dict(request.query_params))
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            items = data.get("items", []) if isinstance(data, dict) else (data if isinstance(data, list) else [])
+            for t in items:
+                if t.get("status") == "completed" and t.get("result_summary"):
+                    chat_store.update_task_message(t.get("id", ""), t["result_summary"])
+            return data
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(e))
 
@@ -28,7 +34,10 @@ async def get_task(task_id: str):
         async with httpx.AsyncClient(base_url=settings.TASK_SERVICE_URL, timeout=5.0) as client:
             resp = await client.get(f"/api/v1/tasks/{task_id}")
             resp.raise_for_status()
-            return resp.json()
+            data = resp.json()
+            if data.get("status") == "completed" and data.get("result_summary"):
+                chat_store.update_task_message(data.get("id", ""), data["result_summary"])
+            return data
     except httpx.HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
     except Exception as e:
