@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:personal_ai_assistant_apps/models/task.dart';
+import 'package:personal_ai_assistant_apps/services/api_service.dart';
 
 class TaskCard extends StatelessWidget {
   final TaskItem task;
@@ -83,18 +84,7 @@ class TaskCard extends StatelessWidget {
             ],
             if (task.resultSummary != null) ...[
               const SizedBox(height: 8),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  color: Colors.teal.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  task.resultSummary!,
-                  style: const TextStyle(color: Colors.tealAccent, fontSize: 12),
-                ),
-              ),
+              _buildTaskResult(context, task.resultSummary!),
             ],
             if (task.errorMessage != null) ...[
               const SizedBox(height: 8),
@@ -132,5 +122,91 @@ class TaskCard extends StatelessWidget {
       default:
         return Colors.grey.shade400;
     }
+  }
+
+  Widget _buildTaskResult(BuildContext context, String summary) {
+    final linkRegex = RegExp(r'\[([^\]]+)\]\(([^)]+)\)');
+    final matches = linkRegex.allMatches(summary).toList();
+
+    if (matches.isNotEmpty) {
+      final firstLine = summary.split('\n').first.replaceAll('*', '').replaceAll('`', '');
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: Colors.teal.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.tealAccent.withValues(alpha: 0.2)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(firstLine, style: const TextStyle(color: Colors.tealAccent, fontSize: 12, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 6),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 180),
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: matches.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 4),
+                itemBuilder: (context, i) {
+                  final m = matches[i];
+                  final name = m.group(1) ?? '';
+                  final path = m.group(2) ?? '';
+                  return InkWell(
+                    onTap: () => apiService.openPath(path, reveal: false),
+                    borderRadius: BorderRadius.circular(4),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 4),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.description, size: 14, color: Colors.tealAccent),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            child: Text(
+                              name,
+                              style: const TextStyle(color: Colors.white, fontSize: 11),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.open_in_new, size: 13, color: Colors.tealAccent),
+                            tooltip: 'Open',
+                            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                            padding: EdgeInsets.zero,
+                            onPressed: () => apiService.openPath(path, reveal: false),
+                          ),
+                          IconButton(
+                            icon: Icon(Icons.folder_shared_outlined, size: 13, color: Colors.grey.shade400),
+                            tooltip: 'Show in Explorer',
+                            constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+                            padding: EdgeInsets.zero,
+                            onPressed: () => apiService.openPath(path, reveal: true),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.teal.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(6),
+      ),
+      child: Text(
+        summary,
+        style: const TextStyle(color: Colors.tealAccent, fontSize: 12),
+      ),
+    );
   }
 }

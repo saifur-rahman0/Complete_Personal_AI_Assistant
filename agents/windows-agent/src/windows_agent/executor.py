@@ -90,18 +90,58 @@ class TaskExecutor:
                 error_message=str(e),
             )
 
-    # --- File Action Handlers ---
+    @staticmethod
+    def _format_file_size(size_bytes: int) -> str:
+        if size_bytes < 1024:
+            return f"{size_bytes} B"
+        elif size_bytes < 1024 * 1024:
+            return f"{size_bytes / 1024:.1f} KB"
+        elif size_bytes < 1024 * 1024 * 1024:
+            return f"{size_bytes / (1024 * 1024):.1f} MB"
+        else:
+            return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
 
     def _handle_list(self, task: TaskResponse, payload: Dict[str, Any]) -> None:
         folder = payload.get("directory_path")
         recursive = payload.get("recursive", False)
         items = self.tools.list_directory(folder, recursive=recursive)
 
-        summary = f"Listed {len(items)} items in '{folder}'."
+        # Sort: directories first, then alphabetical
+        items = sorted(items, key=lambda x: (not x.is_directory, x.name.lower()))
+
+        lines = [f"Found {len(items)} item(s) in `{folder}`:\n"]
+        for it in items[:60]:
+            icon = "📁" if it.is_directory else "📄"
+            size_label = "Folder" if it.is_directory else self._format_file_size(it.size_bytes)
+            lines.append(f"{icon} [{it.name}]({it.path}) — `{size_label}`")
+
+        if len(items) > 60:
+            lines.append(f"\n*... and {len(items) - 60} more items.*")
+        elif not items:
+            lines.append("*(This folder is empty)*")
+
+        summary = "\n".join(lines)
+        result_data = {
+            "type": "folder_list",
+            "folder": str(folder),
+            "count": len(items),
+            "files": [
+                {
+                    "name": it.name,
+                    "path": it.path,
+                    "is_directory": it.is_directory,
+                    "size_bytes": it.size_bytes,
+                    "size_formatted": "Folder" if it.is_directory else self._format_file_size(it.size_bytes),
+                }
+                for it in items
+            ],
+        }
+
         self.client.update_task(
             task.id,
             status=TaskStatus.COMPLETED,
             result_summary=summary,
+            result_data=result_data,
         )
 
     def _handle_search(self, task: TaskResponse, payload: Dict[str, Any]) -> None:
@@ -110,11 +150,42 @@ class TaskExecutor:
         recursive = payload.get("recursive", True)
         matches = self.tools.search_files(folder, pattern=pattern, recursive=recursive)
 
-        summary = f"Found {len(matches)} files matching '{pattern}' in '{folder}'."
+        matches = sorted(matches, key=lambda x: (not x.is_directory, x.name.lower()))
+
+        lines = [f"Found {len(matches)} file(s) matching `{pattern}` in `{folder}`:\n"]
+        for it in matches[:60]:
+            icon = "📁" if it.is_directory else "📄"
+            size_label = "Folder" if it.is_directory else self._format_file_size(it.size_bytes)
+            lines.append(f"{icon} [{it.name}]({it.path}) — `{size_label}`")
+
+        if not matches:
+            lines.append(f"*No files found matching '{pattern}' in '{folder}'.*")
+        elif len(matches) > 60:
+            lines.append(f"\n*... and {len(matches) - 60} more items.*")
+
+        summary = "\n".join(lines)
+        result_data = {
+            "type": "search_results",
+            "pattern": pattern,
+            "folder": str(folder),
+            "count": len(matches),
+            "files": [
+                {
+                    "name": it.name,
+                    "path": it.path,
+                    "is_directory": it.is_directory,
+                    "size_bytes": it.size_bytes,
+                    "size_formatted": "Folder" if it.is_directory else self._format_file_size(it.size_bytes),
+                }
+                for it in matches
+            ],
+        }
+
         self.client.update_task(
             task.id,
             status=TaskStatus.COMPLETED,
             result_summary=summary,
+            result_data=result_data,
         )
 
     def _handle_move(self, task: TaskResponse, payload: Dict[str, Any]) -> None:

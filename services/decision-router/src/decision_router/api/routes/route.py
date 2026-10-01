@@ -1,11 +1,12 @@
 import logging
 import re
+import time
 from typing import Any, Dict, Optional
 from fastapi import APIRouter, HTTPException, status
 import httpx
 from pydantic import BaseModel, Field
 from contracts.router.models import IntentType, RouteDecision, RouteRequest
-from contracts.tasks.models import TaskCreateRequest, TaskResponse, TaskTargetDevice
+from contracts.tasks.models import TaskCreateRequest, TaskResponse, TaskStatus, TaskTargetDevice
 from decision_router.classifiers.laya_classifier import neural_laya_classifier
 from decision_router.classifiers.llm_extractor import llm_extractor
 from decision_router.classifiers.system_one import system_one_classifier
@@ -94,6 +95,23 @@ def _format_conversational_response(prompt: str) -> str:
     )
 
 
+def _wait_for_task_completion(task_id: str, timeout_seconds: float = 3.0) -> Optional[TaskResponse]:
+    """Polls task-service briefly for fast-completing actions so the chat receives live results immediately."""
+    start = time.time()
+    try:
+        with httpx.Client(base_url=settings.TASK_SERVICE_URL, timeout=timeout_seconds + 1.0) as client:
+            while time.time() - start < timeout_seconds:
+                time.sleep(0.15)
+                resp = client.get(f"/api/v1/tasks/{task_id}")
+                if resp.status_code == 200:
+                    task = TaskResponse(**resp.json())
+                    if task.status in (TaskStatus.COMPLETED, TaskStatus.FAILED, TaskStatus.AWAITING_APPROVAL):
+                        return task
+    except Exception as e:
+        logger.warning(f"Error while polling task completion for {task_id}: {e}")
+    return None
+
+
 @router.post(
     "/dispatch",
     response_model=DispatchResponse,
@@ -125,6 +143,27 @@ def dispatch_prompt(req: RouteRequest) -> DispatchResponse:
                 resp = client.post("/api/v1/tasks", json=task_create.model_dump())
                 resp.raise_for_status()
                 created_task = TaskResponse(**resp.json())
+
+                # Await quick task completion for instant results in chat
+                completed = _wait_for_task_completion(created_task.id, timeout_seconds=3.0)
+                if completed and completed.status == TaskStatus.COMPLETED:
+                    return DispatchResponse(
+                        decision=decision,
+                        task=completed,
+                        message=completed.result_summary or f"Task '{completed.title}' completed successfully.",
+                    )
+                elif completed and completed.status == TaskStatus.AWAITING_APPROVAL:
+                    return DispatchResponse(
+                        decision=decision,
+                        task=completed,
+                        message=f"Action '{created_task.title}' requires your authorization. Please check Pending Approvals.",
+                    )
+                elif completed and completed.status == TaskStatus.FAILED:
+                    return DispatchResponse(
+                        decision=decision,
+                        task=completed,
+                        message=f"Action failed: {completed.error_message or 'Unknown error'}",
+                    )
 
                 return DispatchResponse(
                     decision=decision,
@@ -207,6 +246,21 @@ def dispatch_prompt(req: RouteRequest) -> DispatchResponse:
                 resp = client.post("/api/v1/tasks", json=task_create.model_dump())
                 resp.raise_for_status()
                 created_task = TaskResponse(**resp.json())
+
+                # Await quick task completion for instant telemetry/status results in chat
+                completed = _wait_for_task_completion(created_task.id, timeout_seconds=3.0)
+                if completed and completed.status == TaskStatus.COMPLETED:
+                    return DispatchResponse(
+                        decision=decision,
+                        task=completed,
+                        message=completed.result_summary or f"Action '{completed.title}' completed successfully.",
+                    )
+                elif completed and completed.status == TaskStatus.FAILED:
+                    return DispatchResponse(
+                        decision=decision,
+                        task=completed,
+                        message=f"Action failed: {completed.error_message or 'Unknown error'}",
+                    )
 
                 return DispatchResponse(
                     decision=decision,

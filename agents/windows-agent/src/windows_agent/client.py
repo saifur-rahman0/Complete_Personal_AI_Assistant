@@ -39,12 +39,14 @@ class TaskServiceClient:
         task_id: str,
         status: Optional[TaskStatus] = None,
         result_summary: Optional[str] = None,
+        result_data: Optional[Dict[str, Any]] = None,
         error_message: Optional[str] = None,
     ) -> TaskResponse:
         """Updates task state or results."""
         payload = TaskUpdateRequest(
             status=status,
             result_summary=result_summary,
+            result_data=result_data,
             error_message=error_message,
         )
         with httpx.Client(base_url=self.base_url, timeout=10.0) as client:

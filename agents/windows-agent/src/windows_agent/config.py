@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class AgentSettings(BaseSettings):
     TASK_SERVICE_URL: str = "http://localhost:8001"
     DEVICE_ID: str = "windows-laptop-01"
-    POLL_INTERVAL_SECONDS: float = 2.0
+    POLL_INTERVAL_SECONDS: float = 0.5
     ALLOWED_ROOT_PATHS: str = ""
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")

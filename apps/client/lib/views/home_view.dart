@@ -6,6 +6,7 @@ import 'package:personal_ai_assistant_apps/services/api_service.dart';
 import 'package:personal_ai_assistant_apps/widgets/approval_card.dart';
 import 'package:personal_ai_assistant_apps/widgets/command_input.dart';
 import 'package:personal_ai_assistant_apps/widgets/device_sync_dialog.dart';
+import 'package:personal_ai_assistant_apps/widgets/dynamic_chat_bubble.dart';
 import 'package:personal_ai_assistant_apps/widgets/task_card.dart';
 
 class HomeView extends StatefulWidget {
@@ -364,31 +365,7 @@ class _HomeViewState extends State<HomeView> {
       itemCount: _messages.length,
       itemBuilder: (context, index) {
         final msg = _messages[index];
-        final isUser = msg['role'] == 'user';
-
-        return Align(
-          alignment: isUser ? Alignment.centerRight : Alignment.centerLeft,
-          child: Container(
-            margin: const EdgeInsets.symmetric(vertical: 6),
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            constraints: const BoxConstraints(maxWidth: 550),
-            decoration: BoxDecoration(
-              color: isUser ? Colors.cyanAccent.shade700 : const Color(0xFF1B202B),
-              borderRadius: BorderRadius.circular(16).copyWith(
-                bottomRight: isUser ? const Radius.circular(0) : const Radius.circular(16),
-                bottomLeft: !isUser ? const Radius.circular(0) : const Radius.circular(16),
-              ),
-            ),
-            child: Text(
-              msg['text']!,
-              style: TextStyle(
-                color: isUser ? Colors.black : Colors.white,
-                fontSize: 14,
-                height: 1.4,
-              ),
-            ),
-          ),
-        );
+        return DynamicChatBubble(message: msg);
       },
     );
   }

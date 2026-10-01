@@ -471,6 +471,34 @@ class ApiService {
       return [];
     }
   }
+
+  /// Opens or reveals a file/folder on the Windows workstation.
+  Future<bool> openPath(String path, {bool reveal = true}) async {
+    // 1. If running on Windows desktop natively, launch explorer directly
+    if (Platform.isWindows) {
+      try {
+        if (reveal) {
+          await Process.run('explorer.exe', ['/select,', path]);
+        } else {
+          await Process.run('explorer.exe', [path]);
+        }
+        return true;
+      } catch (_) {
+        // Fall back to gateway API
+      }
+    }
+
+    // 2. Cross-device or fallback via Gateway endpoint
+    try {
+      await _httpPost(
+        '$gatewayBaseUrl/api/v1/files/open',
+        {'path': path, 'reveal': reveal},
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
 }
 
 final apiService = ApiService();

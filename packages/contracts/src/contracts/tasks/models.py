@@ -37,6 +37,7 @@ class TaskCreateRequest(BaseModel):
 class TaskUpdateRequest(BaseModel):
     status: Optional[TaskStatus] = Field(default=None, description="Updated status")
     result_summary: Optional[str] = Field(default=None, description="Execution outcome summary")
+    result_data: Optional[Dict[str, Any]] = Field(default=None, description="Detailed structured execution results")
     error_message: Optional[str] = Field(default=None, description="Error details if task failed")
 
 
@@ -49,6 +50,7 @@ class TaskResponse(BaseModel):
     target_device: TaskTargetDevice = Field(...)
     payload: Dict[str, Any] = Field(default_factory=dict)
     result_summary: Optional[str] = None
+    result_data: Optional[Dict[str, Any]] = Field(default_factory=dict)
     error_message: Optional[str] = None
     created_at: datetime = Field(...)
     updated_at: datetime = Field(...)
