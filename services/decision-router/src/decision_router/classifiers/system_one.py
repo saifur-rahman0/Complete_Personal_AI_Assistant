@@ -17,6 +17,23 @@ KNOWN_FOLDERS = {
 }
 
 
+KNOWN_EXTENSIONS: Dict[str, str] = {
+    "pdf": "*.pdf",
+    "doc": "*.doc", "docx": "*.docx", "word": "*.doc*",
+    "xls": "*.xls", "xlsx": "*.xlsx", "excel": "*.xls*", "csv": "*.csv",
+    "ppt": "*.ppt", "pptx": "*.pptx", "presentation": "*.ppt*", "powerpoint": "*.ppt*",
+    "txt": "*.txt", "text": "*.txt",
+    "png": "*.png", "jpg": "*.jpg", "jpeg": "*.jpeg", "gif": "*.gif", "webp": "*.webp",
+    "image": "*.png,*.jpg,*.jpeg,*.webp", "images": "*.png,*.jpg,*.jpeg,*.webp",
+    "photo": "*.png,*.jpg,*.jpeg", "photos": "*.png,*.jpg,*.jpeg",
+    "picture": "*.png,*.jpg,*.jpeg", "pictures": "*.png,*.jpg,*.jpeg",
+    "video": "*.mp4,*.mkv,*.mov", "videos": "*.mp4,*.mkv,*.mov",
+    "audio": "*.mp3,*.wav,*.flac", "music": "*.mp3,*.wav,*.flac", "song": "*.mp3,*.wav,*.flac", "songs": "*.mp3,*.wav,*.flac",
+    "zip": "*.zip", "rar": "*.rar", "7z": "*.7z", "archive": "*.zip,*.rar,*.7z",
+    "py": "*.py", "python": "*.py", "js": "*.js", "json": "*.json",
+}
+
+
 class SystemOneClassifier(BaseClassifier):
     """
     Sub-millisecond System One non-autoregressive decision model.
@@ -27,7 +44,8 @@ class SystemOneClassifier(BaseClassifier):
         re.compile(r"\b(organize|sort|clean|cleanup|group)\b", re.IGNORECASE),
     ]
     FILE_SEARCH_PATTERNS = [
-        re.compile(r"\b(search|find|locate|look for|where is|is there|do we have|do i have|check for|show me)\b", re.IGNORECASE),
+        re.compile(r"\b(search|find|locate|look for|where is|is there|do we have|do i have|check for|show me|show|get|display|view|see)\b", re.IGNORECASE),
+        re.compile(r"\b(all|any)\s+(pdf|doc|docx|image|photo|video|sheet|document|file|txt|csv|resume|invoice)s?\b", re.IGNORECASE),
         re.compile(r"\b(present\s+any|any\s+\w+\s+(file|pdf|doc|document|image|photo|resume|sheet|receipt|invoice))\b", re.IGNORECASE),
         re.compile(r"\b(is\s+there\s+present)\b", re.IGNORECASE),
     ]
@@ -93,7 +111,7 @@ class SystemOneClassifier(BaseClassifier):
             )
 
         # 3. Check File Management intents
-        file_decision = self._classify_file_action(text)
+        file_decision = self._classify_file_action(text, history=request.history)
         if file_decision:
             action, payload, confidence = file_decision
             latency = (time.perf_counter() - start_time) * 1000
@@ -137,7 +155,25 @@ class SystemOneClassifier(BaseClassifier):
     def _matches(self, text: str, patterns: list) -> bool:
         return any(p.search(text) for p in patterns)
 
-    def _classify_file_action(self, text: str) -> Optional[Tuple[str, Dict[str, Any], float]]:
+    def _extract_folder_from_history(self, history: Optional[List[Dict[str, Any]]]) -> Optional[str]:
+        if not history:
+            return None
+        for turn in reversed(history[-4:]):
+            t = turn.get("text", "")
+            m = re.search(r'\b([a-zA-Z]:[\\/][a-zA-Z0-9_\-\. \\/]+)', t)
+            if m:
+                cand = m.group(1).strip().rstrip(":*?").strip()
+                p = Path(cand)
+                if p.is_dir():
+                    return str(p.resolve())
+                if p.parent.is_dir():
+                    return str(p.parent.resolve())
+            for name, path in KNOWN_FOLDERS.items():
+                if re.search(rf"\b{name}\b", t, re.IGNORECASE):
+                    return path
+        return None
+
+    def _classify_file_action(self, text: str, history: Optional[List[Dict[str, Any]]] = None) -> Optional[Tuple[str, Dict[str, Any], float]]:
         # Detect target folder
         detected_folder = None
 
@@ -153,6 +189,10 @@ class SystemOneClassifier(BaseClassifier):
                 if re.search(rf"\b{name}\b", text, re.IGNORECASE):
                     detected_folder = path
                     break
+
+        # Check contextual reference: "this folder", "current folder", "here"
+        if not detected_folder and re.search(r"\b(this|current|here)\b", text, re.IGNORECASE) and history:
+            detected_folder = self._extract_folder_from_history(history)
 
         # Fallback to Downloads if folder isn't explicitly mentioned but "folder" is
         if not detected_folder and "folder" in text.lower():
@@ -180,24 +220,36 @@ class SystemOneClassifier(BaseClassifier):
                 0.85,
             )
 
-        # Search files
-        if self._matches(text, self.FILE_SEARCH_PATTERNS):
-            # 1. Check for explicit file extension
+        # Check for explicit file extension or category
+        pattern_ext = None
+        for ext_key, glob_pat in KNOWN_EXTENSIONS.items():
+            if re.search(rf"\b{ext_key}s?\b", text, re.IGNORECASE):
+                pattern_ext = glob_pat
+                break
+
+        if not pattern_ext:
             ext_match = re.search(r"\b(\.?[a-zA-Z0-9]+)\s+files?\b", text, re.IGNORECASE)
             pattern_ext = f"*.{ext_match.group(1).lstrip('.').lower()}" if ext_match else None
 
-            # 2. Extract specific subject keywords (e.g. "resume", "invoice", "taxes", "report")
+        # Search files
+        if self._matches(text, self.FILE_SEARCH_PATTERNS) or pattern_ext:
+            clean_text = text
+            if pattern_ext:
+                for ext_key in KNOWN_EXTENSIONS.keys():
+                    clean_text = re.sub(rf"\b{ext_key}s?\b", "", clean_text, flags=re.IGNORECASE)
+
+            # Extract specific subject keywords (e.g. "resume", "invoice", "taxes", "report")
             clean_subject = re.sub(
-                r"\b(is|there|present|any|do|we|i|you|have|search|find|locate|look|for|where|check|show|me|all|the|in|from|on|folder|directory|files?|download|documents?|desktop)\b",
+                r"\b(is|are|there|present|any|do|we|i|you|have|search|find|locate|look|for|where|check|show|me|get|list|give|tell|what|display|view|see|all|the|in|inside|from|on|of|this|that|these|current|here|folder|directory|files?|download|downloads|documents?|desktop|pictures?|images?)\b",
                 "",
-                text,
+                clean_text,
                 flags=re.IGNORECASE,
             ).strip()
             clean_subject = re.sub(r"[?!.,;:]", "", clean_subject).strip()
 
             if clean_subject and pattern_ext:
                 raw_ext = pattern_ext.lstrip("*").lstrip(".").lower()
-                if clean_subject.lower() == raw_ext:
+                if clean_subject.lower() in raw_ext or raw_ext in clean_subject.lower():
                     pattern = pattern_ext
                 else:
                     pattern = f"*{clean_subject}*{pattern_ext.replace('*', '')}"

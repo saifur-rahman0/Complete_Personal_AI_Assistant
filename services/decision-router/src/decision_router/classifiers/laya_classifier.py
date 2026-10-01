@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from contracts.router.models import IntentType, RouteDecision, RouteRequest
 from decision_router.classifiers.base import BaseClassifier
-from decision_router.classifiers.system_one import system_one_classifier
+from decision_router.classifiers.system_one import KNOWN_EXTENSIONS, system_one_classifier
 
 logger = logging.getLogger("decision_router.classifiers.laya")
 
@@ -126,26 +126,50 @@ class NeuralLayaClassifier(BaseClassifier):
                 return EXTENDED_FOLDERS.get(folder_key)
         return None
 
+    def _extract_folder_from_history(self, history: Optional[List[Dict[str, Any]]]) -> Optional[str]:
+        if not history:
+            return None
+        for turn in reversed(history[-4:]):
+            t = turn.get("text", "")
+            m = re.search(r'\b([a-zA-Z]:[\\/][a-zA-Z0-9_\-\. \\/]+)', t)
+            if m:
+                cand = m.group(1).strip().rstrip(":*?").strip()
+                p = Path(cand)
+                if p.is_dir():
+                    return str(p.resolve())
+                if p.parent.is_dir():
+                    return str(p.parent.resolve())
+            for name, path in EXTENDED_FOLDERS.items():
+                if re.search(rf"\b{name}\b", t, re.IGNORECASE):
+                    return path
+        return None
+
     def _extract_search_pattern(self, text: str) -> str:
         """Extracts search query term by removing conversational filler words and folder mentions."""
-        cleaned = text.strip()
-        # Remove common question/command prefixes
-        cleaned = re.sub(
-            r"^(can you|please|could you)?\s*(is there|are there|search for|find|locate|show me|look for|check for|do we have|do i have|list)\s*(any|a|the)?\s*",
+        # 1. Check known extension or category
+        for ext_key, glob_pat in KNOWN_EXTENSIONS.items():
+            if re.search(rf"\b{ext_key}s?\b", text, re.IGNORECASE):
+                clean = re.sub(rf"\b{ext_key}s?\b", "", text, flags=re.IGNORECASE)
+                clean_subj = re.sub(
+                    r"\b(is|are|there|present|any|do|we|i|you|have|search|find|locate|look|for|where|check|show|me|get|list|give|tell|what|display|view|see|all|the|in|inside|from|on|of|this|that|these|current|here|folder|directory|files?|download|downloads|documents?|desktop|pictures?|images?)\b",
+                    "",
+                    clean,
+                    flags=re.IGNORECASE,
+                ).strip()
+                clean_subj = re.sub(r"[?!.,;:]", "", clean_subj).strip()
+                if clean_subj:
+                    return f"*{clean_subj}*{glob_pat.replace('*', '')}"
+                return glob_pat
+
+        # 2. General subject
+        clean = re.sub(
+            r"\b(is|are|there|present|any|do|we|i|you|have|search|find|locate|look|for|where|check|show|me|get|list|give|tell|what|display|view|see|all|the|in|inside|from|on|of|this|that|these|current|here|folder|directory|files?|download|downloads|documents?|desktop|pictures?|images?)\b",
             "",
-            cleaned,
+            text,
             flags=re.IGNORECASE,
-        )
-        # Remove folder references from the pattern
-        cleaned = re.sub(
-            r"\s*(in|inside|from|on)\s*(my\s*)?(downloads|documents|desktop|pictures|images|videos|music|folder|dir|directory)\b.*$",
-            "",
-            cleaned,
-            flags=re.IGNORECASE,
-        )
-        # Remove trailing question mark
-        cleaned = cleaned.rstrip("?").strip()
-        return cleaned if cleaned else text.strip()
+        ).strip()
+        clean = re.sub(r"[?!.,;:]", "", clean).strip()
+        return f"*{clean}*" if clean else "*"
 
     def classify(self, request: RouteRequest) -> RouteDecision:
         """
@@ -277,12 +301,15 @@ class NeuralLayaClassifier(BaseClassifier):
 
             if choice == "file_management" or (has_file_keywords and file_action_choice != "not_file_action"):
                 # Check heuristic first for explicit paths or patterns
-                file_decision = system_one_classifier._classify_file_action(text)
+                file_decision = system_one_classifier._classify_file_action(text, history=request.history)
                 if file_decision and file_decision[2] >= 0.85:
                     action, payload, file_conf = file_decision
                 else:
                     # Resolve folder path
                     explicit_folder = self._detect_folder_in_text(text)
+                    if not explicit_folder and re.search(r"\b(this|current|here)\b", text, re.IGNORECASE) and request.history:
+                        explicit_folder = self._extract_folder_from_history(request.history)
+
                     folder_path = (
                         explicit_folder
                         or EXTENDED_FOLDERS.get(folder_choice)
@@ -291,6 +318,14 @@ class NeuralLayaClassifier(BaseClassifier):
 
                     # Resolve action
                     action = file_action_choice if file_action_choice != "not_file_action" else "search_files"
+
+                    # If the prompt targets a specific extension or file category, it MUST be search_files
+                    has_search_target = any(
+                        re.search(rf"\b{k}s?\b", prompt_lower) for k in KNOWN_EXTENSIONS.keys()
+                    ) or any(w in prompt_lower for w in ["search", "find", "locate", "look for", "is there", "where", "filter", "show all"])
+
+                    if action == "list_directory" and has_search_target:
+                        action = "search_files"
 
                     if action == "organize_folder":
                         payload = {"directory_path": folder_path, "strategy": "by_extension"}
@@ -329,7 +364,7 @@ class NeuralLayaClassifier(BaseClassifier):
                             if any(w in prompt_lower for w in ["search", "find", "locate", "look for", "show", "is there", "where"]):
                                 action = "search_files"
                                 pattern = self._extract_search_pattern(text)
-                                payload = {"directory_path": folder_path, "pattern": pattern, "query": pattern}
+                                payload = {"directory_path": folder_path, "pattern": pattern, "query": pattern, "recursive": True}
                             elif any(w in prompt_lower for w in ["list", "what is inside", "show files"]):
                                 action = "list_directory"
                                 payload = {"directory_path": folder_path}
@@ -357,6 +392,7 @@ class NeuralLayaClassifier(BaseClassifier):
                             "directory_path": folder_path,
                             "pattern": pattern,
                             "query": pattern,
+                            "recursive": True,
                         }
 
                 return RouteDecision(
